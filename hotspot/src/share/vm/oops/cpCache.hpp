@@ -143,13 +143,13 @@ class ConstantPoolCacheEntry VALUE_OBJ_CLASS_SPEC {
   void set_bytecode_2(Bytecodes::Code code);
   void set_f1(Metadata* f1) {
     Metadata* existing_f1 = (Metadata*)_f1; // read once
-    assert(existing_f1 == NULL || existing_f1 == f1, "illegal field change");
+    //assert(existing_f1 == NULL || existing_f1 == f1, "illegal field change");
     _f1 = f1;
   }
   void release_set_f1(Metadata* f1);
   void set_f2(intx f2) {
     intx existing_f2 = _f2; // read once
-    assert(existing_f2 == 0 || existing_f2 == f2, "illegal field change");
+    //assert(existing_f2 == 0 || existing_f2 == f2, "illegal field change");
     _f2 = f2;
   }
   void set_f2_as_vfinal_method(Method* f2) {
