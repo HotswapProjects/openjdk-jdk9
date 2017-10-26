@@ -965,7 +965,7 @@ void HeapRegion::verify_rem_set() const {
 }
 
 void HeapRegion::prepare_for_compaction(CompactPoint* cp) {
-  scan_and_forward(this, cp);
+  scan_and_forward(this, cp, false);
 }
 
 // G1OffsetTableContigSpace code; copied from space.cpp.  Hope this can go
