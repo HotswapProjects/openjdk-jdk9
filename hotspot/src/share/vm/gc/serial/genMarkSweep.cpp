@@ -333,7 +333,7 @@ void GenMarkSweep::mark_sweep_phase4() {
 
   GCTraceTime(Info, gc, phases) tm("Phase 4: Move objects", _gc_timer);
 
-  MarkSweep::copy_rescued_objects_back();
+//  MarkSweep::copy_rescued_objects_back();
 
   GenCompactClosure blk;
   gch->generation_iterate(&blk, true);

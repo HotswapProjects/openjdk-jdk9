@@ -188,6 +188,7 @@ Klass* SystemDictionary::resolve_or_fail(Symbol* class_name, Handle class_loader
     // can return a null klass
     klass = handle_resolution_exception(class_name, throw_error, k_h, THREAD);
   }
+  assert(klass == NULL || klass->new_version() == NULL || klass->newest_version()->is_redefining(), "must be");
   return klass;
 }
 

@@ -68,6 +68,9 @@ Klass*      VM_EnhancedRedefineClasses::_the_class_oop = NULL;
 VM_EnhancedRedefineClasses::VM_EnhancedRedefineClasses(jint class_count,
                                        const jvmtiClassDefinition *class_defs,
                                        JvmtiClassLoadKind class_load_kind) : VM_GC_Operation(Universe::heap()->total_full_collections(), GCCause::_heap_inspection) {
+
+  ResourceMark rm(Thread::current());
+
   _affected_klasses = NULL;
   _class_count = class_count;
   _class_defs = class_defs;
@@ -420,8 +423,8 @@ public:
           }
           src->set_klass(obj->klass()->new_version());
           //  FIXME: instance updates...
-          guarantee(false, "instance updates!");
-          //MarkSweep::update_fields(obj, src, new_klass->update_information());
+          //guarantee(false, "instance updates!");
+          MarkSweep::update_fields(obj, src, new_klass->update_information());
 
           if (size_diff > 0) {
             HeapWord* dead_space = ((HeapWord *)obj) + obj->size();
@@ -474,7 +477,7 @@ void VM_EnhancedRedefineClasses::doit() {
   flush_dependent_code(instanceKlassHandle(thread, (Klass*)NULL), thread);
 
   // Adjust constantpool caches for all classes that reference methods of the evolved class.
-  ClearCpoolCacheAndUnpatch clear_cpool_cache(Thread::current());
+  ClearCpoolCacheAndUnpatch clear_cpool_cache(thread);
   ClassLoaderDataGraph::classes_do(&clear_cpool_cache);
 
   ChangePointersOopClosure<StoreNoBarrier> oopClosureNoBarrier;
@@ -543,7 +546,8 @@ void VM_EnhancedRedefineClasses::doit() {
   }
 
   if (objectClosure.needs_instance_update()) {
-    guarantee(false, "instance updates!");
+    // FIXME: v.d.
+    // guarantee(false, "instance updates!");
     // FIXME: log...
     // Do a full garbage collection to update the instance sizes accordingly
     Universe::set_redefining_gc_run(true);
@@ -4301,12 +4305,33 @@ void VM_EnhancedRedefineClasses::update_jmethod_ids() {
   for (int j = 0; j < _matching_methods_length; ++j) {
     Method* old_method = _matching_old_methods[j];
     jmethodID jmid = old_method->find_jmethod_id_or_null();
+    if (old_method->new_version() != NULL && jmid == NULL) {
+       // (DCEVM) Have to create jmethodID in this case
+       jmid = old_method->jmethod_id();
+    }
+
     if (jmid != NULL) {
       // There is a jmethodID, change it to point to the new method
       methodHandle new_method_h(_matching_new_methods[j]);
+
+
+      if (old_method->new_version() == NULL) {
+        methodHandle old_method_h(_matching_old_methods[j]);
+        jmethodID new_jmethod_id = Method::make_jmethod_id(old_method_h->method_holder()->class_loader_data(), old_method_h());
+        bool result = InstanceKlass::cast(old_method_h->method_holder())->update_jmethod_id(old_method_h(), new_jmethod_id);
+      } else {
+        jmethodID mid = new_method_h->jmethod_id();
+        bool result = InstanceKlass::cast(new_method_h->method_holder())->update_jmethod_id(new_method_h(), jmid);
+      }
+      
       Method::change_method_associated_with_jmethod_id(jmid, new_method_h());
-      assert(Method::resolve_jmethod_id(jmid) == _matching_new_methods[j],
-             "should be replaced");
+      // assert(Method::resolve_jmethod_id(jmid) == _new_methods->at(_matching_new_methods[j]), "should be replaced");
+      //jmethodID mid = (_new_methods->at(_matching_new_methods[j]))->jmethod_id();
+
+
+//      Method::change_method_associated_with_jmethod_id(jmid, new_method_h());
+//      assert(Method::resolve_jmethod_id(jmid) == _matching_new_methods[j],
+//             "should be replaced");
     }
   }
 }
@@ -4430,7 +4455,7 @@ int VM_EnhancedRedefineClasses::check_methods_and_mark_as_obsolete() {
            "cannot delete methods with vtable entries");;*/
 
     // Mark all deleted methods as old, obsolete and deleted
-    old_method->set_is_deleted();
+    // old_method->set_is_deleted();
     old_method->set_is_old();
     old_method->set_is_obsolete();
     ++obsolete_count;

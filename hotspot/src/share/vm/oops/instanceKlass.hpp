@@ -894,6 +894,7 @@ public:
                 size_t *length_p, jmethodID* id_p);
   void ensure_space_for_methodids(int start_offset = 0);
   jmethodID jmethod_id_or_null(Method* method);
+  bool update_jmethod_id(Method* method, jmethodID newMethodID);
 
   // annotations support
   Annotations* annotations() const          { return _annotations; }

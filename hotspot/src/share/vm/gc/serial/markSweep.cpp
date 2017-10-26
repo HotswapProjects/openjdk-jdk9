@@ -337,7 +337,7 @@ void MarkSweep::update_fields(oop q, oop new_location) {
         ((HeapWord *)new_location >= (HeapWord *)q && (HeapWord *)new_location < (HeapWord *)q + size)) {
        tmp = NEW_RESOURCE_ARRAY(HeapWord, size);
        q = (oop) tmp;
-       Copy::aligned_disjoint_words((HeapWord*)q, (HeapWord*)tmp_obj, size);
+       Copy::aligned_disjoint_words((HeapWord*)tmp_obj, (HeapWord*)q, size);
     }
   }
 

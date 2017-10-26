@@ -1933,6 +1933,19 @@ void InstanceKlass::add_dependent_nmethod(nmethod* nm) {
   dependencies().add_dependent_nmethod(nm);
 }
 
+bool InstanceKlass::update_jmethod_id(Method* method, jmethodID newMethodID) {
+  size_t idnum = (size_t)method->method_idnum();
+  jmethodID* jmeths = methods_jmethod_ids_acquire();
+  size_t length;                                // length assigned as debugging crumb
+  jmethodID id = NULL;
+  if (jmeths != NULL &&                         // If there is a cache
+      (length = (size_t)jmeths[0]) > idnum) {   // and if it is long enough,
+    jmeths[idnum+1] = newMethodID;              // Set method id (may be NULL)
+    return true;
+  }
+  return false;
+}
+
 void InstanceKlass::remove_dependent_nmethod(nmethod* nm, bool delete_immediately) {
   dependencies().remove_dependent_nmethod(nm, delete_immediately);
 }
