@@ -437,30 +437,45 @@ int CompactibleSpace::space_index(oop obj) {
   //}
 
   int index = 0;
-  for (int i = heap->n_gens() - 1; i >= 0; i--) {
-    Generation* gen = heap->get_gen(i);
-    CompactibleSpace* space = gen->first_compaction_space();
-    while (space != NULL) {
-      if (space->is_in_reserved(obj)) {
-        return index;
-      }
-      space = space->next_compaction_space();
-      index++;
+  CompactibleSpace* space = heap->old_gen()->first_compaction_space();
+  while (space != NULL) {
+    if (space->is_in_reserved(obj)) {
+      return index;
     }
+    space = space->next_compaction_space();
+    index++;
+  }
+
+  space = heap->young_gen()->first_compaction_space();
+  while (space != NULL) {
+    if (space->is_in_reserved(obj)) {
+      return index;
+    }
+    space = space->next_compaction_space();
+    index++;
   }
 
   tty->print_cr("could not compute space_index for %08xh", (HeapWord*)obj);
   index = 0;
-  for (int i = heap->n_gens() - 1; i >= 0; i--) {
-    Generation* gen = heap->get_gen(i);
-    tty->print_cr("  generation %s: %08xh - %08xh", gen->name(), gen->reserved().start(), gen->reserved().end());
 
-    CompactibleSpace* space = gen->first_compaction_space();
-    while (space != NULL) {
-      tty->print_cr("    %2d space %08xh - %08xh", index, space->bottom(), space->end());
-      space = space->next_compaction_space();
-      index++;
-    }
+  Generation* gen = heap->old_gen();
+  tty->print_cr("  generation %s: %08xh - %08xh", gen->name(), gen->reserved().start(), gen->reserved().end());
+
+  space = gen->first_compaction_space();
+  while (space != NULL) {
+    tty->print_cr("    %2d space %08xh - %08xh", index, space->bottom(), space->end());
+    space = space->next_compaction_space();
+    index++;
+  }
+
+  gen = heap->young_gen();
+  tty->print_cr("  generation %s: %08xh - %08xh", gen->name(), gen->reserved().start(), gen->reserved().end());
+
+  space = gen->first_compaction_space();
+  while (space != NULL) {
+    tty->print_cr("    %2d space %08xh - %08xh", index, space->bottom(), space->end());
+    space = space->next_compaction_space();
+    index++;
   }
 
   ShouldNotReachHere();
@@ -493,8 +508,8 @@ bool CompactibleSpace::must_rescue(oop old_obj, oop new_obj) {
     } else {
       // In the new generation, eden is located before the from space, so a
       // simple pointer comparison is sufficient.
-      assert(GenCollectedHeap::heap()->get_gen(0)->is_in_reserved(old_obj), "old_obj must be in DefNewGeneration");
-      assert(GenCollectedHeap::heap()->get_gen(0)->is_in_reserved(new_obj), "new_obj must be in DefNewGeneration");
+      assert(GenCollectedHeap::heap()->young_gen()->is_in_reserved(old_obj), "old_obj must be in DefNewGeneration");
+      assert(GenCollectedHeap::heap()->young_gen()->is_in_reserved(new_obj), "new_obj must be in DefNewGeneration");
       assert(overlap == (space_index(old_obj) < space_index(new_obj)), "slow and fast computation must yield same result");
     }
     return overlap;
@@ -503,13 +518,13 @@ bool CompactibleSpace::must_rescue(oop old_obj, oop new_obj) {
     assert(space_index(old_obj) != space_index(new_obj), "old_obj and new_obj must be in different spaces");
     if (tenured_gen->is_in_reserved(new_obj)) {
       // Must never rescue when moving from the new into the old generation.
-      assert(GenCollectedHeap::heap()->get_gen(0)->is_in_reserved(old_obj), "old_obj must be in DefNewGeneration");
+      assert(GenCollectedHeap::heap()->young_gen()->is_in_reserved(old_obj), "old_obj must be in DefNewGeneration");
       assert(space_index(old_obj) > space_index(new_obj), "must be");
       return false;
 
     } else /* if (tenured_gen->is_in_reserved(old_obj)) */ {
       // Must always rescue when moving from the old into the new generation.
-      assert(GenCollectedHeap::heap()->get_gen(0)->is_in_reserved(new_obj), "new_obj must be in DefNewGeneration");
+      assert(GenCollectedHeap::heap()->young_gen()->is_in_reserved(new_obj), "new_obj must be in DefNewGeneration");
       assert(space_index(old_obj) < space_index(new_obj), "must be");
       return true;
     }
