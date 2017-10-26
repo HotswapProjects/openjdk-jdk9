@@ -908,6 +908,7 @@ Klass* SystemDictionary::resolve_instance_class_or_null(Symbol* name,
     ClassLoaderData* loader_data = k->class_loader_data();
     MutexLocker mu(SystemDictionary_lock, THREAD);
     Klass* kk = find_class(name, loader_data);
+    // FIXME: (kk == k() && !k->is_redefining()) || (k->is_redefining() && kk == k->old_version())
     assert(kk == k(), "should be present in dictionary");
   }
 #endif
@@ -1053,6 +1054,7 @@ Klass* SystemDictionary::parse_stream(Symbol* class_name,
                                                            protection_domain,
                                                            host_klass,
                                                            cp_patches,
+                                                           false, // pick_newest
                                                            CHECK_NULL);
 
   if (host_klass != NULL && k.not_null()) {
@@ -1101,7 +1103,9 @@ Klass* SystemDictionary::resolve_from_stream(Symbol* class_name,
                                              Handle class_loader,
                                              Handle protection_domain,
                                              ClassFileStream* st,
+                                             instanceKlassHandle old_klass,
                                              TRAPS) {
+  bool is_redefining = !old_klass.is_null();
 
   // Classloaders that support parallelism, e.g. bootstrap classloader,
   // or all classloaders with UnsyncloadClass do not acquire lock here
@@ -1128,6 +1132,7 @@ Klass* SystemDictionary::resolve_from_stream(Symbol* class_name,
  instanceKlassHandle k;
 
 #if INCLUDE_CDS
+  // FIXME: what to do during redefinition?
   k = SystemDictionaryShared::lookup_from_stream(class_name,
                                                  class_loader,
                                                  protection_domain,
@@ -1145,7 +1150,13 @@ Klass* SystemDictionary::resolve_from_stream(Symbol* class_name,
                                          protection_domain,
                                          NULL, // host_klass
                                          NULL, // cp_patches
+                                         is_redefining, // pick_newest
                                          CHECK_NULL);
+  }
+
+  if (is_redefining && !k.is_null()) {
+    k->set_redefining(true);
+    k->set_old_version(old_klass());
   }
 
   assert(k.not_null(), "no klass created");
@@ -1155,7 +1166,7 @@ Klass* SystemDictionary::resolve_from_stream(Symbol* class_name,
   // Add class just loaded
   // If a class loader supports parallel classloading handle parallel define requests
   // find_or_define_instance_class may return a different InstanceKlass
-  if (is_parallelCapable(class_loader)) {
+  if (is_parallelCapable(class_loader) && !is_redefining) {
     instanceKlassHandle defined_k = find_or_define_instance_class(h_name, class_loader, k, THREAD);
     if (!HAS_PENDING_EXCEPTION && defined_k() != k()) {
       // If a parallel capable class loader already defined this class, register 'k' for cleanup.
@@ -1164,7 +1175,7 @@ Klass* SystemDictionary::resolve_from_stream(Symbol* class_name,
       k = defined_k;
     }
   } else {
-    define_instance_class(k, THREAD);
+    define_instance_class(k, old_klass, THREAD);
   }
 
   // If defining the class throws an exception register 'k' for cleanup.
@@ -1179,7 +1190,7 @@ Klass* SystemDictionary::resolve_from_stream(Symbol* class_name,
     MutexLocker mu(SystemDictionary_lock, THREAD);
 
     Klass* check = find_class(h_name, k->class_loader_data());
-    assert(check == k(), "should be present in the dictionary");
+    assert((check == k() && !k->is_redefining()) || (k->is_redefining() && check == k->old_version()), "should be present in the dictionary");
   } );
 
   return k();
@@ -1612,10 +1623,11 @@ instanceKlassHandle SystemDictionary::load_instance_class(Symbol* class_name, Ha
   }
 }
 
-void SystemDictionary::define_instance_class(instanceKlassHandle k, TRAPS) {
+void SystemDictionary::define_instance_class(instanceKlassHandle k, instanceKlassHandle old_klass, TRAPS) {
 
   ClassLoaderData* loader_data = k->class_loader_data();
   Handle class_loader_h(THREAD, loader_data->class_loader());
+  bool is_redefining = !old_klass.is_null();
 
  // for bootstrap and other parallel classloaders don't acquire lock,
  // use placeholder token
@@ -1640,7 +1652,11 @@ void SystemDictionary::define_instance_class(instanceKlassHandle k, TRAPS) {
   Symbol*  name_h = k->name();
   unsigned int d_hash = dictionary()->compute_hash(name_h, loader_data);
   int d_index = dictionary()->hash_to_index(d_hash);
-  check_constraints(d_index, d_hash, k, class_loader_h, true, CHECK);
+  if (is_redefining) {
+    bool ok = dictionary()->update_klass(d_index, d_hash, name_h, loader_data, k, old_klass);
+    assert (ok, "must have found old class and updated!");
+  }
+  check_constraints(d_index, d_hash, k, class_loader_h, !is_redefining, CHECK);
 
   // Register class just loaded with class loader (placed in Vector)
   // Note we do this before updating the dictionary, as this can
@@ -1674,7 +1690,7 @@ void SystemDictionary::define_instance_class(instanceKlassHandle k, TRAPS) {
   k->eager_initialize(THREAD);
 
   // notify jvmti
-  if (JvmtiExport::should_post_class_load()) {
+  if (!is_redefining && JvmtiExport::should_post_class_load()) {
       assert(THREAD->is_Java_thread(), "thread->is_Java_thread()");
       JvmtiExport::post_class_load((JavaThread *) THREAD, k());
 
@@ -1752,7 +1768,7 @@ instanceKlassHandle SystemDictionary::find_or_define_instance_class(Symbol* clas
     }
   }
 
-  define_instance_class(k, THREAD);
+  define_instance_class(k, instanceKlassHandle(), THREAD);
 
   Handle linkage_exception = Handle(); // null handle
 
@@ -1880,6 +1896,22 @@ void SystemDictionary::add_to_hierarchy(instanceKlassHandle k, TRAPS) {
   // Also, first reinitialize vtable because it may have gotten out of synch
   // while the new class wasn't connected to the class hierarchy.
   CodeCache::flush_dependents_on(k);
+}
+
+// Enhanced class redefinition
+void SystemDictionary::remove_from_hierarchy(instanceKlassHandle k) {
+    assert(k.not_null(), "just checking");
+
+  // remove receiver from sibling list
+  k->remove_from_sibling_list();
+}
+
+void SystemDictionary::update_constraints_after_redefinition() {
+  constraints()->update_after_redefinition();
+}
+
+void SystemDictionary::rollback_redefinition() {
+    dictionary()->rollback_redefinition();
 }
 
 // ----------------------------------------------------------------------------
@@ -2015,6 +2047,10 @@ void SystemDictionary::lazily_loaded_classes_do(KlassClosure* f) {
 // Don't iterate over placeholders
 void SystemDictionary::classes_do(void f(Klass*)) {
   dictionary()->classes_do(f);
+}
+
+void SystemDictionary::classes_do(KlassClosure* closure) {
+  dictionary()->classes_do(closure);
 }
 
 // Added for initialize_itable_for_klass
@@ -2250,7 +2286,7 @@ void SystemDictionary::check_constraints(int d_index, unsigned int d_hash,
       // also holds array classes
 
       assert(check->is_instance_klass(), "noninstance in systemdictionary");
-      if ((defining == true) || (k() != check)) {
+      if ((defining == true) || ((k() != check) && k->old_version() != check)) {
         linkage_error1 = "loader (instance of  ";
         linkage_error2 = "): attempted  duplicate class definition for name: \"";
       } else {

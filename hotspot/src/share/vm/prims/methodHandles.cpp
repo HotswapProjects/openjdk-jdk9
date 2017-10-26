@@ -176,7 +176,7 @@ oop MethodHandles::init_MemberName(Handle mname, Handle target) {
   return NULL;
 }
 
-oop MethodHandles::init_method_MemberName(Handle mname, CallInfo& info, bool intern) {
+oop MethodHandles::init_method_MemberName(Handle mname, CallInfo& info, bool intern, bool reinit) {
   assert(info.resolved_appendix().is_null(), "only normal methods here");
   methodHandle m = info.resolved_method();
   assert(m.not_null(), "null method handle");
@@ -277,6 +277,9 @@ oop MethodHandles::init_method_MemberName(Handle mname, CallInfo& info, bool int
   // If relevant, the vtable or itable value is stored as vmindex.
   // This is done eagerly, since it is readily available without
   // constructing any new objects.
+  if (reinit) { // FIXME: enhanced redefinition... review...
+    return mname_oop;
+  }
   return m->method_holder()->add_member_name(mname, intern);
 }
 

@@ -640,7 +640,8 @@ bool InstanceKlass::link_class_impl(
       }
 #endif
       this_k->set_init_state(linked);
-      if (JvmtiExport::should_post_class_prepare()) {
+      // (DCEVM) Must check for old version in order to prevent infinite loops.
+      if (JvmtiExport::should_post_class_prepare() && this_k->old_version() == NULL /* JVMTI deadlock otherwise */) {
         Thread *thread = THREAD;
         assert(thread->is_Java_thread(), "thread->is_Java_thread()");
         JvmtiExport::post_class_prepare((JavaThread *) thread, this_k());
@@ -973,6 +974,18 @@ bool InstanceKlass::implements_interface(Klass* k) const {
   return false;
 }
 
+bool InstanceKlass::implements_interface_any_version(Klass* k) const {
+  k = k->newest_version();
+  if (this->newest_version() == k) return true;
+  assert(k->is_interface(), "should be an interface class");
+  for (int i = 0; i < transitive_interfaces()->length(); i++) {
+    if (transitive_interfaces()->at(i)->newest_version() == k) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool InstanceKlass::is_same_or_direct_interface(Klass *k) const {
   // Verify direct super interface
   if (this == k) return true;
@@ -1248,6 +1261,20 @@ void InstanceKlass::methods_do(void f(Method* method)) {
     assert(m->is_method(), "must be method");
     f(m);
   }
+}
+
+
+void InstanceKlass::store_update_information(GrowableArray<int> &values) {
+  int *arr = NEW_C_HEAP_ARRAY(int, values.length(), mtClass);
+  for (int i = 0; i < values.length(); i++) {
+    arr[i] = values.at(i);
+  }
+  set_update_information(arr);
+}
+
+void InstanceKlass::clear_update_information() {
+  FREE_C_HEAP_ARRAY(int, update_information());
+  set_update_information(NULL);
 }
 
 

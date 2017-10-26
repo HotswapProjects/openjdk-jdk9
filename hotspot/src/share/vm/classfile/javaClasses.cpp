@@ -2030,6 +2030,8 @@ void java_lang_Throwable::fill_in_stack_trace(Handle throwable, const methodHand
         skip_throwableInit_check = true;
       }
     }
+    // (DCEVM): Line numbers from newest version must be used for EMCP-swapped methods
+    method = method->newest_version();
     if (method->is_hidden()) {
       if (skip_hidden)  continue;
     }
@@ -3110,7 +3112,7 @@ void java_lang_invoke_DirectMethodHandle_StaticAccessor::set_static_offset(oop d
 
 void java_lang_invoke_DirectMethodHandle_StaticAccessor::compute_offsets() {
   Klass* klass_oop = SystemDictionary::DirectMethodHandle_StaticAccessor_klass();
-  if (klass_oop != NULL && EnableInvokeDynamic) {
+  if (klass_oop != NULL) {
     compute_offset(_static_offset_offset, klass_oop, vmSymbols::static_offset_name(), vmSymbols::long_signature());
   }
 }
@@ -3132,7 +3134,7 @@ void java_lang_invoke_DirectMethodHandle_Accessor::set_field_offset(oop dmh, int
 
 void java_lang_invoke_DirectMethodHandle_Accessor::compute_offsets() {
   Klass* klass_oop = SystemDictionary::DirectMethodHandle_Accessor_klass();
-  if (klass_oop != NULL && EnableInvokeDynamic) {
+  if (klass_oop != NULL) {
     compute_offset(_field_offset_offset, klass_oop, vmSymbols::field_offset_name(), vmSymbols::int_signature());
   }
 }
@@ -3813,9 +3815,6 @@ void java_lang_AssertionStatusDirectives::set_deflt(oop o, bool val) {
 // Support for intrinsification of java.nio.Buffer.checkIndex
 int java_nio_Buffer::limit_offset() {
   return _limit_offset;
-
-    java_lang_invoke_DirectMethodHandle_StaticAccessor::compute_offsets();
-    java_lang_invoke_DirectMethodHandle_Accessor::compute_offsets();
 }
 
 
@@ -3906,6 +3905,8 @@ void JavaClasses::compute_offsets() {
   java_lang_ThreadGroup::compute_offsets();
   java_lang_invoke_MethodHandle::compute_offsets();
   java_lang_invoke_DirectMethodHandle::compute_offsets();
+  java_lang_invoke_DirectMethodHandle_StaticAccessor::compute_offsets();
+  java_lang_invoke_DirectMethodHandle_Accessor::compute_offsets();
   java_lang_invoke_MemberName::compute_offsets();
   java_lang_invoke_LambdaForm::compute_offsets();
   java_lang_invoke_MethodType::compute_offsets();

@@ -119,6 +119,7 @@ class InstanceKlass: public Klass {
   friend class JVMCIVMStructs;
   friend class ClassFileParser;
   friend class CompileReplay;
+  friend class VM_EnhancedRedefineClasses;
 
  protected:
   InstanceKlass(const ClassFileParser& parser, unsigned kind);
@@ -965,6 +966,7 @@ public:
 
   // subclass/subinterface checks
   bool implements_interface(Klass* k) const;
+  bool implements_interface_any_version(Klass* k) const;
   bool is_same_or_direct_interface(Klass* k) const;
 
 #ifdef ASSERT
@@ -1023,6 +1025,10 @@ public:
   void do_local_static_fields(FieldClosure* cl);
   void do_nonstatic_fields(FieldClosure* cl); // including inherited fields
   void do_local_static_fields(void f(fieldDescriptor*, Handle, TRAPS), Handle, TRAPS);
+
+  // Advanced class redefinition: FIXME: why here?
+  void store_update_information(GrowableArray<int> &values);
+  void clear_update_information();
 
   void methods_do(void f(Method* method));
   void array_klasses_do(void f(Klass* k));

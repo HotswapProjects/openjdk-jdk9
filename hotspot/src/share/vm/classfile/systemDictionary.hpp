@@ -310,6 +310,7 @@ public:
                                     Handle class_loader,
                                     Handle protection_domain,
                                     ClassFileStream* st,
+                                    instanceKlassHandle old_klass,
                                     TRAPS);
 
   // Lookup an already loaded class. If not found NULL is returned.
@@ -351,6 +352,7 @@ public:
   // Iterate over all klasses in dictionary
   //   Just the classes from defining class loaders
   static void classes_do(void f(Klass*));
+  static void classes_do(KlassClosure* closure);
   // Added for initialize_itable_for_klass to handle exceptions
   static void classes_do(void f(Klass*, TRAPS), TRAPS);
   //   All classes, and their class loaders
@@ -384,6 +386,10 @@ public:
 
   // System loader lock
   static oop system_loader_lock()           { return _system_loader_lock_obj; }
+
+  // Enhanced class redefinition
+  static void remove_from_hierarchy(instanceKlassHandle k);
+  static void update_constraints_after_redefinition();
 
 protected:
   // Extended Redefine classes support (tbi)
@@ -436,6 +442,9 @@ public:
     int limit = (int)end_id + 1;
     initialize_wk_klasses_until((WKID) limit, start_id, THREAD);
   }
+
+  // Enhanced class redefinition
+  static void rollback_redefinition();
 
 public:
   #define WK_KLASS_DECLARE(name, symbol, option) \
@@ -639,7 +648,7 @@ protected:
   // after waiting, but before reentering SystemDictionary_lock
   // to preserve lock order semantics.
   static void double_lock_wait(Handle lockObject, TRAPS);
-  static void define_instance_class(instanceKlassHandle k, TRAPS);
+  static void define_instance_class(instanceKlassHandle k, instanceKlassHandle old_klass, TRAPS);
   static instanceKlassHandle find_or_define_instance_class(Symbol* class_name,
                                                 Handle class_loader,
                                                 instanceKlassHandle k, TRAPS);

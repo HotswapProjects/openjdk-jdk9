@@ -228,7 +228,7 @@ bool Verifier::is_eligible_for_verification(instanceKlassHandle klass, bool shou
   Symbol* name = klass->name();
   Klass* refl_magic_klass = SystemDictionary::reflect_MagicAccessorImpl_klass();
 
-  bool is_reflect = refl_magic_klass != NULL && klass->is_subtype_of(refl_magic_klass);
+  bool is_reflect = refl_magic_klass != NULL && (klass->is_subtype_of(refl_magic_klass) || klass->is_subtype_of(refl_magic_klass->newest_version()));
 
   return (should_verify_for(klass->class_loader(), should_verify_class) &&
     // return if the class is a bootstrapping class

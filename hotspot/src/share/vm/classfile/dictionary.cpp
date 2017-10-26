@@ -158,7 +158,7 @@ void Dictionary::do_unloading() {
       InstanceKlass* ik = InstanceKlass::cast(e);
 
       // Non-unloadable classes were handled in always_strong_oops_do
-      if (!is_strongly_reachable(loader_data, e)) {
+      if (!is_strongly_reachable(loader_data, e) && !ik->is_redefining()) {
         // Entry was not visited in phase1 (negated test from phase1)
         assert(!loader_data->is_the_null_class_loader_data(), "unloading entry with null class loader");
         ClassLoaderData* k_def_class_loader_data = ik->class_loader_data();
@@ -297,6 +297,19 @@ void Dictionary::classes_do(void f(Klass*)) {
   }
 }
 
+void Dictionary::classes_do(KlassClosure* closure) {
+  for (int index = 0; index < table_size(); index++) {
+    for (DictionaryEntry* probe = bucket(index);
+                          probe != NULL;
+                          probe = probe->next()) {
+      Klass* k = probe->klass();
+      if (probe->loader_data() == k->class_loader_data()) {
+        closure->do_klass(k);
+      }
+    }
+  }
+}
+
 // Added for initialize_itable_for_klass to handle exceptions
 //   Just the classes from defining class loaders
 void Dictionary::classes_do(void f(Klass*, TRAPS), TRAPS) {
@@ -383,6 +396,33 @@ void Dictionary::add_klass(Symbol* class_name, ClassLoaderData* loader_data,
   add_entry(index, entry);
 }
 
+bool Dictionary::update_klass(int index, unsigned int hash, Symbol* name, ClassLoaderData* loader_data, KlassHandle k, KlassHandle old_klass) {
+  // There are several entries for the same class in the dictionary: One extra entry for each parent classloader of the classloader of the class.
+  bool found = false;
+  for (int index = 0; index < table_size(); index++) {
+    for (DictionaryEntry* entry = bucket(index); entry != NULL; entry = entry->next()) {
+      if (entry->klass() == old_klass()) {
+        entry->set_literal(k());
+        found = true;
+      }
+    }
+  }
+  return found;
+}
+
+void Dictionary::rollback_redefinition() {
+  for (int index = 0; index < table_size(); index++) {
+    for (DictionaryEntry* entry = bucket(index);
+                          entry != NULL;
+                          entry = entry->next()) {
+      if (entry->klass()->is_redefining()) {
+        entry->set_literal(entry->klass()->old_version());
+      }
+    }
+  }
+}
+
+
 
 // This routine does not lock the system dictionary.
 //
@@ -414,7 +454,7 @@ Klass* Dictionary::find(int index, unsigned int hash, Symbol* name,
                           ClassLoaderData* loader_data, Handle protection_domain, TRAPS) {
   DictionaryEntry* entry = get_entry(index, hash, name, loader_data);
   if (entry != NULL && entry->is_valid_protection_domain(protection_domain)) {
-    return entry->klass();
+    return old_if_redefined(entry->klass());
   } else {
     return NULL;
   }
@@ -427,7 +467,7 @@ Klass* Dictionary::find_class(int index, unsigned int hash,
   assert (index == index_for(name, loader_data), "incorrect index?");
 
   DictionaryEntry* entry = get_entry(index, hash, name, loader_data);
-  return (entry != NULL) ? entry->klass() : (Klass*)NULL;
+  return old_if_redefined((entry != NULL) ? entry->klass() : (Klass*)NULL);
 }
 
 
@@ -439,7 +479,7 @@ Klass* Dictionary::find_shared_class(int index, unsigned int hash,
   assert (index == index_for(name, NULL), "incorrect index?");
 
   DictionaryEntry* entry = get_entry(index, hash, name, NULL);
-  return (entry != NULL) ? entry->klass() : (Klass*)NULL;
+  return old_if_redefined((entry != NULL) ? entry->klass() : (Klass*)NULL);
 }
 
 

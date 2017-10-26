@@ -1291,6 +1291,8 @@ methodHandle LinkResolver::linktime_resolve_virtual_method(const LinkInfo& link_
   return resolved_method;
 }
 
+      // (DCEVM) Check that the receiver is a subtype of the holder of the resolved method.
+      assert(inst->is_subtype_of(resolved_method->method_holder()), "receiver and resolved method holder are inconsistent");
 // throws runtime exceptions
 void LinkResolver::runtime_resolve_virtual_method(CallInfo& result,
                                                   const methodHandle& resolved_method,

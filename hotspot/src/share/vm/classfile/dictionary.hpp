@@ -97,6 +97,7 @@ public:
   void always_strong_classes_do(KlassClosure* closure);
 
   void classes_do(void f(Klass*));
+  void classes_do(KlassClosure* closure);
   void classes_do(void f(Klass*, TRAPS), TRAPS);
   void classes_do(void f(Klass*, ClassLoaderData*));
 
@@ -135,6 +136,15 @@ public:
   void printPerformanceInfoDetails();
 #endif // ASSERT
   void verify();
+
+  // Enhanced class redefinition
+  bool update_klass(int index, unsigned int hash, Symbol* name, ClassLoaderData* loader_data, KlassHandle k, KlassHandle old_klass);
+
+  void rollback_redefinition();
+
+  static Klass* old_if_redefined(Klass* k) {
+    return (k != NULL && k->is_redefining()) ? k->old_version() : k;
+  }
 };
 
 // The following classes can be in dictionary.cpp, but we need these

@@ -843,7 +843,7 @@ void ClassFileParser::parse_interfaces(const ClassFileStream* const stream,
         "Interface name has bad constant pool index %u in class file %s",
         interface_index, CHECK);
       if (cp->tag_at(interface_index).is_klass()) {
-        interf = KlassHandle(THREAD, cp->resolved_klass_at(interface_index));
+        interf = KlassHandle(THREAD, maybe_newest(cp->resolved_klass_at(interface_index)));
       } else {
         Symbol* const unresolved_klass  = cp->klass_name_at(interface_index);
 
@@ -860,7 +860,7 @@ void ClassFileParser::parse_interfaces(const ClassFileStream* const stream,
                                                   _protection_domain,
                                                   false,
                                                   CHECK);
-        interf = KlassHandle(THREAD, k);
+        interf = KlassHandle(THREAD, maybe_newest(k));
       }
 
       if (!interf()->is_interface()) {
@@ -3559,7 +3559,7 @@ const InstanceKlass* ClassFileParser::parse_super_class(ConstantPool* const cp,
     // However, make sure it is not an array type.
     bool is_array = false;
     if (cp->tag_at(super_class_index).is_klass()) {
-      super_klass = InstanceKlass::cast(cp->resolved_klass_at(super_class_index));
+      super_klass = InstanceKlass::cast(maybe_newest(cp->resolved_klass_at(super_class_index)));
       if (need_verify)
         is_array = super_klass->is_array_klass();
     } else if (need_verify) {
@@ -5561,6 +5561,7 @@ ClassFileParser::ClassFileParser(ClassFileStream* stream,
                                  const InstanceKlass* host_klass,
                                  GrowableArray<Handle>* cp_patches,
                                  Publicity pub_level,
+                                 const bool pick_newest,
                                  TRAPS) :
   _stream(stream),
   _requested_name(name),
@@ -5613,7 +5614,8 @@ ClassFileParser::ClassFileParser(ClassFileStream* stream,
   _has_finalizer(false),
   _has_empty_finalizer(false),
   _has_vanilla_constructor(false),
-  _max_bootstrap_specifier_index(-1) {
+  _max_bootstrap_specifier_index(-1),
+  _pick_newest(pick_newest) {
 
   _class_name = name != NULL ? name : vmSymbols::unknown_class_name();
 
@@ -5984,13 +5986,15 @@ void ClassFileParser::post_process_parsed_stream(const ClassFileStream* const st
         "Interfaces must have java.lang.Object as superclass in class file %s",
         CHECK);
     }
-    _super_klass = (const InstanceKlass*)
+
+    const Klass* super_klass =
                        SystemDictionary::resolve_super_or_fail(_class_name,
                                                                super_class_name,
                                                                _loader_data->class_loader(),
                                                                _protection_domain,
                                                                true,
                                                                CHECK);
+      _super_klass = (const InstanceKlass*) maybe_newest(super_klass);
   }
 
   if (_super_klass != NULL) {

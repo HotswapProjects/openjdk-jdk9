@@ -180,6 +180,8 @@ class ConstantPoolCacheEntry VALUE_OBJ_CLASS_SPEC {
     tos_state_bits             = 4,
     tos_state_mask             = right_n_bits(tos_state_bits),
     tos_state_shift            = BitsPerInt - tos_state_bits,  // see verify_tos_state_shift below
+    // (DCEVM) We need to remember entries which has resolved reference indices as we don't want to clean them
+    is_resolved_ref_shift      = 27,
     // misc. option bits; can be any bit position in [16..27]
     is_field_entry_shift       = 26,  // (F) is it a field or a method?
     has_method_type_shift      = 25,  // (M) does the call site have a MethodType?
@@ -212,6 +214,7 @@ class ConstantPoolCacheEntry VALUE_OBJ_CLASS_SPEC {
   void initialize_resolved_reference_index(int ref_index) {
     assert(_f2 == 0, "set once");  // note: ref_index might be zero also
     _f2 = ref_index;
+    _flags = 1 << is_resolved_ref_shift;
   }
 
   void set_field(                                // sets entry to resolved field state
@@ -351,6 +354,7 @@ class ConstantPoolCacheEntry VALUE_OBJ_CLASS_SPEC {
   bool is_final() const                          { return (_flags & (1 << is_final_shift))          != 0; }
   bool is_forced_virtual() const                 { return (_flags & (1 << is_forced_virtual_shift)) != 0; }
   bool is_vfinal() const                         { return (_flags & (1 << is_vfinal_shift))         != 0; }
+  bool is_resolved_reference() const             { return (_flags & (1 << is_resolved_ref_shift))   != 0; }
   bool has_appendix() const                      { return (!is_f1_null()) && (_flags & (1 << has_appendix_shift))      != 0; }
   bool has_method_type() const                   { return (!is_f1_null()) && (_flags & (1 << has_method_type_shift))   != 0; }
   bool is_method_entry() const                   { return (_flags & (1 << is_field_entry_shift))    == 0; }
@@ -381,6 +385,10 @@ class ConstantPoolCacheEntry VALUE_OBJ_CLASS_SPEC {
          bool* trace_name_printed);
   bool check_no_old_or_obsolete_entries();
   Method* get_interesting_method_entry(Klass* k);
+
+  // Enhanced RedefineClasses() API support (DCEVM):
+  // Clear cached entry, let it be re-resolved
+  void clear_entry();
 #endif // INCLUDE_JVMTI
 
   // Debugging & Printing
@@ -479,6 +487,10 @@ class ConstantPoolCache: public MetaspaceObj {
   void adjust_method_entries(InstanceKlass* holder, bool* trace_name_printed);
   bool check_no_old_or_obsolete_entries();
   void dump_cache();
+
+  // Enhanced RedefineClasses() API support (DCEVM):
+  // Clear all entries
+  void clear_entries();
 #endif // INCLUDE_JVMTI
 
   // Deallocate - no fields to deallocate
