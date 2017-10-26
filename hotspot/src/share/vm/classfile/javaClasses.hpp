@@ -980,6 +980,55 @@ class java_lang_invoke_DirectMethodHandle: AllStatic {
   static int member_offset_in_bytes()           { return _member_offset; }
 };
 
+// Interface to java.lang.invoke.DirectMethodHandle$StaticAccessor objects
+
+class java_lang_invoke_DirectMethodHandle_StaticAccessor: AllStatic {
+  friend class JavaClasses;
+
+ private:
+  static int _static_offset_offset;               // offset to static field
+
+  static void compute_offsets();
+
+ public:
+  // Accessors
+  static long      static_offset(oop dmh);
+  static void  set_static_offset(oop dmh, long value);
+
+  // Testers
+  static bool is_subclass(Klass* klass) {
+    return klass->is_subclass_of(SystemDictionary::DirectMethodHandle_StaticAccessor_klass());
+  }
+  static bool is_instance(oop obj) {
+    return obj != NULL && is_subclass(obj->klass());
+  }
+};
+
+// Interface to java.lang.invoke.DirectMethodHandle$Accessor objects
+
+class java_lang_invoke_DirectMethodHandle_Accessor: AllStatic {
+  friend class JavaClasses;
+
+ private:
+  static int _field_offset_offset;               // offset to field
+
+  static void compute_offsets();
+
+ public:
+  // Accessors
+  static int      field_offset(oop dmh);
+  static void set_field_offset(oop dmh, int value);
+
+  // Testers
+  static bool is_subclass(Klass* klass) {
+    return klass->is_subclass_of(SystemDictionary::DirectMethodHandle_Accessor_klass());
+  }
+  static bool is_instance(oop obj) {
+    return obj != NULL && is_subclass(obj->klass());
+  }
+};
+
+
 // Interface to java.lang.invoke.LambdaForm objects
 // (These are a private interface for managing adapter code generation.)
 

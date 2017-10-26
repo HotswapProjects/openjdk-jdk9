@@ -282,6 +282,8 @@
   template(java_lang_invoke_CallSite,                 "java/lang/invoke/CallSite")                \
   template(java_lang_invoke_ConstantCallSite,         "java/lang/invoke/ConstantCallSite")        \
   template(java_lang_invoke_DirectMethodHandle,       "java/lang/invoke/DirectMethodHandle")      \
+  template(java_lang_invoke_DirectMethodHandle_StaticAccessor, "java/lang/invoke/DirectMethodHandle$StaticAccessor") \
+  template(java_lang_invoke_DirectMethodHandle_Accessor, "java/lang/invoke/DirectMethodHandle$Accessor") \
   template(java_lang_invoke_MutableCallSite,          "java/lang/invoke/MutableCallSite")         \
   template(java_lang_invoke_VolatileCallSite,         "java/lang/invoke/VolatileCallSite")        \
   template(java_lang_invoke_MethodHandle,             "java/lang/invoke/MethodHandle")            \
@@ -459,6 +461,10 @@
   template(getProtectionDomain_signature,             "(Ljava/security/CodeSource;)Ljava/security/ProtectionDomain;") \
   template(url_code_signer_array_void_signature,      "(Ljava/net/URL;[Ljava/security/CodeSigner;)V") \
   template(module_entry_name,                         "module_entry")                             \
+  template(static_offset_name,                        "staticOffset")                             \
+  template(static_base_name,                          "staticBase")                               \
+  template(field_offset_name,                         "fieldOffset")                              \
+  template(field_type_name,                           "fieldType")                                \
                                                                                                   \
   /* name symbols needed by intrinsics */                                                         \
   VM_INTRINSICS_DO(VM_INTRINSIC_IGNORE, VM_SYMBOL_IGNORE, template, VM_SYMBOL_IGNORE, VM_ALIAS_IGNORE) \

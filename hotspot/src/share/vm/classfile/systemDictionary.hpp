@@ -152,6 +152,8 @@ class SymbolPropertyTable;
                                                                                                                          \
   /* support for dynamic typing; it's OK if these are NULL in earlier JDKs */                                            \
   do_klass(DirectMethodHandle_klass,                    java_lang_invoke_DirectMethodHandle,       Opt                 ) \
+  do_klass(DirectMethodHandle_StaticAccessor_klass,     java_lang_invoke_DirectMethodHandle_StaticAccessor, Opt        ) \
+  do_klass(DirectMethodHandle_Accessor_klass,           java_lang_invoke_DirectMethodHandle_Accessor, Opt              ) \
   do_klass(MethodHandle_klass,                          java_lang_invoke_MethodHandle,             Pre                 ) \
   do_klass(VarHandle_klass,                             java_lang_invoke_VarHandle,                Pre                 ) \
   do_klass(MemberName_klass,                            java_lang_invoke_MemberName,               Pre                 ) \
