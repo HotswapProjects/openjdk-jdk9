@@ -4085,7 +4085,10 @@ public:
   diagnostic(bool, CompilerDirectivesPrint, false,                          \
              "Print compiler directives on installation.")                  \
   diagnostic(int,  CompilerDirectivesLimit, 50,                             \
-             "Limit on number of compiler directives.")
+             "Limit on number of compiler directives.")                     \
+  product(bool, AllowEnhancedClassRedefinition, true,                       \
+             "Allow enhanced class redefinition beyond swapping method "    \
+             "bodies")
 
 
 /*

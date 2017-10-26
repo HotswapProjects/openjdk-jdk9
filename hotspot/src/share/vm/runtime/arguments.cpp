@@ -1841,7 +1841,10 @@ void Arguments::select_compilation_mode_ergonomically() {
 
 void Arguments::select_gc_ergonomically() {
 #if INCLUDE_ALL_GCS
-  if (os::is_server_class_machine()) {
+  if (AllowEnhancedClassRedefinition) {
+    // Enhanced class redefinition only supports serial GC at the moment
+    FLAG_SET_ERGO(bool, UseSerialGC, true);
+  } else if (os::is_server_class_machine()) {
     if (!UseAutoGCSelectPolicy) {
        FLAG_SET_ERGO_IF_DEFAULT(bool, UseG1GC, true);
     } else {
@@ -2424,6 +2427,16 @@ bool Arguments::check_gc_consistency() {
   if (UseConcMarkSweepGC)                i++;
   if (UseParallelGC || UseParallelOldGC) i++;
   if (UseG1GC)                           i++;
+  if (AllowEnhancedClassRedefinition) {
+    // Must use serial GC. This limitation applies because the instance size changing GC modifications
+    // are only built into the mark and compact algorithm.
+    if (!UseSerialGC && i >= 1) {
+      jio_fprintf(defaultStream::error_stream(),
+                  "Must use the serial GC with enhanced class redefinition\n");
+      return false;
+    }
+  }
+
   if (i > 1) {
     jio_fprintf(defaultStream::error_stream(),
                 "Conflicting collector combinations in option list; "
