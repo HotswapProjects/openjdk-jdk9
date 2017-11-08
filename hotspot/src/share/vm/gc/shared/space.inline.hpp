@@ -169,7 +169,7 @@ inline void CompactibleSpace::scan_and_forward(SpaceType* space, CompactPoint* c
 
       if (redefinition_run) {
         compact_top = cp->space->forward_with_rescue(cur_obj, size, cp, compact_top);
-        if ((first_dead == NULL || cur_obj < first_dead) && oop(cur_obj)->is_gc_marked()) {
+        if (first_dead == NULL && oop(cur_obj)->is_gc_marked()) {
           /* Was moved (otherwise, forward would reset mark),
              set first_dead to here */
           first_dead = cur_obj;
