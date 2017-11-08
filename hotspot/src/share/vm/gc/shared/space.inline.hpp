@@ -326,7 +326,7 @@ inline void CompactibleSpace::scan_and_compact(SpaceType* space, bool redefiniti
   if (space->_first_dead > cur_obj && !oop(cur_obj)->is_gc_marked()) {
     // All object before _first_dead can be skipped. They should not be moved.
     // A pointer to the first live object is stored at the memory location for _first_dead.
-    cur_obj = *(HeapWord**)(space->_first_dead);
+    cur_obj = space->_first_dead;
   }
 
   debug_only(HeapWord* prev_obj = NULL);
