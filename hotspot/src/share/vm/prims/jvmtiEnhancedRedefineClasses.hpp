@@ -32,9 +32,19 @@
 #include "oops/objArrayOop.hpp"
 #include "runtime/vm_operations.hpp"
 #include "gc/shared/vmGCOperations.hpp"
+#include "../../../../../jdk/src/java.base/unix/native/include/jni_md.h"
 
-
-
+/**
+ * Enhanced class redefiner.
+ *
+ * This class implements VM_GC_Operation - the usual usage should be:
+ *     VM_EnhancedRedefineClasses op(class_count, class_definitions, jvmti_class_load_kind_redefine);
+ *     VMThread::execute(&op);
+ * Which in turn runs:
+ *   - doit_prologue() - calculate all affected classes (add subclasses etc) and load new class versions
+ *   - doit() - main redefition, adjust existing objects on the heap, clear caches
+ *   - doit_epilogue() - cleanup
+*/
 class VM_EnhancedRedefineClasses: public VM_GC_Operation {
  private:
   // These static fields are needed by ClassLoaderDataGraph::classes_do()
@@ -70,11 +80,13 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   int                         _operands_index_map_count;
   intArray *                  _operands_index_map_p;
 
-  GrowableArray<Klass*>*      _scratch_classes;
+  GrowableArray<Klass*>*      _new_classes;
   jvmtiError                  _res;
 
-  // Enhanced class redefinition
+  // Enhanced class redefinition, affected klasses contain all classes which should be redefined
+  // either because of redefine, class hierarchy or interface change
   GrowableArray<Klass*>*      _affected_klasses;
+
   int                         _max_redefinition_flags;
 
   // Performance measurement support. These timers do not cover all
@@ -86,10 +98,17 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
 
   // These routines are roughly in call order unless otherwise noted.
 
-  // Load the caller's new class definition(s) into _scratch_classes.
-  // Constant pool merging work is done here as needed. Also calls
-  // compare_and_normalize_class_versions() to verify the class
-  // definition(s).
+  /**
+    Load and link new classes (either redefined or affected by redefinition - subclass, ...)
+
+    - find sorted affected classes
+    - resolve new class
+    - calculate redefine flags (field change, method change, supertype change, ...)
+    - calculate modified fields and mapping to old fields
+    - link new classes
+
+    The result is sotred in _affected_klasses(old definitions) and _new_classes(new definitions) arrays.
+  */
   jvmtiError load_new_class_versions(TRAPS);
 
   // Searches for all affected classes and performs a sorting such tha
@@ -106,12 +125,6 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   static void mark_as_scavengable(nmethod* nm);
   static void unpatch_bytecode(Method* method);
 
-  // Verify that the caller provided class definition(s) that meet
-  // the restrictions of RedefineClasses. Normalize the order of
-  // overloaded methods as needed.
-  jvmtiError compare_and_normalize_class_versions(
-    instanceKlassHandle the_class, instanceKlassHandle scratch_class);
-
   // Figure out which new methods match old methods in name and signature,
   // which methods have been added, and which are no longer present
   void compute_added_deleted_matching_methods();
@@ -125,7 +138,7 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   void transfer_old_native_function_registrations(instanceKlassHandle the_class);
 
   // Install the redefinition of a class
-  void redefine_single_class(Klass* scratch_class_oop, TRAPS);
+  void redefine_single_class(Klass* new_class_oop, TRAPS);
 
   void swap_annotations(instanceKlassHandle new_class,
                         instanceKlassHandle scratch_class);
@@ -134,80 +147,7 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   // and in all direct and indirect subclasses.
   void increment_class_counter(InstanceKlass *ik, TRAPS);
 
-  // Support for constant pool merging (these routines are in alpha order):
-  void append_entry(const constantPoolHandle& scratch_cp, int scratch_i,
-    constantPoolHandle *merge_cp_p, int *merge_cp_length_p, TRAPS);
-  void append_operand(const constantPoolHandle& scratch_cp, int scratch_bootstrap_spec_index,
-    constantPoolHandle *merge_cp_p, int *merge_cp_length_p, TRAPS);
-  void finalize_operands_merge(const constantPoolHandle& merge_cp, TRAPS);
-  int find_or_append_indirect_entry(const constantPoolHandle& scratch_cp, int scratch_i,
-    constantPoolHandle *merge_cp_p, int *merge_cp_length_p, TRAPS);
-  int find_or_append_operand(const constantPoolHandle& scratch_cp, int scratch_bootstrap_spec_index,
-    constantPoolHandle *merge_cp_p, int *merge_cp_length_p, TRAPS);
-  int find_new_index(int old_index);
-  int find_new_operand_index(int old_bootstrap_spec_index);
-  bool is_unresolved_class_mismatch(const constantPoolHandle& cp1, int index1,
-    const constantPoolHandle& cp2, int index2);
-  void map_index(const constantPoolHandle& scratch_cp, int old_index, int new_index);
-  void map_operand_index(int old_bootstrap_spec_index, int new_bootstrap_spec_index);
-  bool merge_constant_pools(const constantPoolHandle& old_cp,
-    const constantPoolHandle& scratch_cp, constantPoolHandle *merge_cp_p,
-    int *merge_cp_length_p, TRAPS);
-  jvmtiError merge_cp_and_rewrite(instanceKlassHandle the_class,
-    instanceKlassHandle scratch_class, TRAPS);
-  u2 rewrite_cp_ref_in_annotation_data(
-    AnnotationArray* annotations_typeArray, int &byte_i_ref,
-    const char * trace_mesg, TRAPS);
-  bool rewrite_cp_refs(instanceKlassHandle scratch_class, TRAPS);
-  bool rewrite_cp_refs_in_annotation_struct(
-    AnnotationArray* class_annotations, int &byte_i_ref, TRAPS);
-  bool rewrite_cp_refs_in_annotations_typeArray(
-    AnnotationArray* annotations_typeArray, int &byte_i_ref, TRAPS);
-  bool rewrite_cp_refs_in_class_annotations(
-    instanceKlassHandle scratch_class, TRAPS);
-  bool rewrite_cp_refs_in_element_value(
-    AnnotationArray* class_annotations, int &byte_i_ref, TRAPS);
-  bool rewrite_cp_refs_in_type_annotations_typeArray(
-    AnnotationArray* type_annotations_typeArray, int &byte_i_ref,
-    const char * location_mesg, TRAPS);
-  bool rewrite_cp_refs_in_type_annotation_struct(
-    AnnotationArray* type_annotations_typeArray, int &byte_i_ref,
-    const char * location_mesg, TRAPS);
-  bool skip_type_annotation_target(
-    AnnotationArray* type_annotations_typeArray, int &byte_i_ref,
-    const char * location_mesg, TRAPS);
-  bool skip_type_annotation_type_path(
-    AnnotationArray* type_annotations_typeArray, int &byte_i_ref, TRAPS);
-  bool rewrite_cp_refs_in_fields_annotations(
-    instanceKlassHandle scratch_class, TRAPS);
-  void rewrite_cp_refs_in_method(methodHandle method,
-    methodHandle * new_method_p, TRAPS);
-  bool rewrite_cp_refs_in_methods(instanceKlassHandle scratch_class, TRAPS);
-  bool rewrite_cp_refs_in_methods_annotations(
-    instanceKlassHandle scratch_class, TRAPS);
-  bool rewrite_cp_refs_in_methods_default_annotations(
-    instanceKlassHandle scratch_class, TRAPS);
-  bool rewrite_cp_refs_in_methods_parameter_annotations(
-    instanceKlassHandle scratch_class, TRAPS);
-  bool rewrite_cp_refs_in_class_type_annotations(
-    instanceKlassHandle scratch_class, TRAPS);
-  bool rewrite_cp_refs_in_fields_type_annotations(
-    instanceKlassHandle scratch_class, TRAPS);
-  bool rewrite_cp_refs_in_methods_type_annotations(
-    instanceKlassHandle scratch_class, TRAPS);
-  void rewrite_cp_refs_in_stack_map_table(const methodHandle& method, TRAPS);
-  void rewrite_cp_refs_in_verification_type_info(
-         address& stackmap_addr_ref, address stackmap_end, u2 frame_i,
-         u1 frame_size, TRAPS);
-  void set_new_constant_pool(ClassLoaderData* loader_data,
-         instanceKlassHandle scratch_class,
-         constantPoolHandle scratch_cp, int scratch_cp_length, TRAPS);
-
   void flush_dependent_code(instanceKlassHandle k_h, TRAPS);
-
-  // lock classes to redefine since constant pool merging isn't thread safe.
-  void lock_classes();
-  void unlock_classes();
 
   static void dump_methods();
 

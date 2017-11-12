@@ -1263,7 +1263,10 @@ void InstanceKlass::methods_do(void f(Method* method)) {
   }
 }
 
-
+/**
+  Update information contains mapping of fields from old class to the new class.
+  Info is stored on HEAP, you need to call clear_update_information to free the space.
+*/
 void InstanceKlass::store_update_information(GrowableArray<int> &values) {
   int *arr = NEW_C_HEAP_ARRAY(int, values.length(), mtClass);
   for (int i = 0; i < values.length(); i++) {
