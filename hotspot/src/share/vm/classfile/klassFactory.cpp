@@ -110,11 +110,12 @@ static ClassFileStream* check_class_file_load_hook(ClassFileStream* stream,
                                                    ClassLoaderData* loader_data,
                                                    Handle protection_domain,
                                                    JvmtiCachedClassFileData** cached_class_file,
+                                                   const bool pick_newest,
                                                    TRAPS) {
 
   assert(stream != NULL, "invariant");
 
-  if (JvmtiExport::should_post_class_file_load_hook()) {
+  if (!pick_newest && JvmtiExport::should_post_class_file_load_hook()) {
     assert(THREAD->is_Java_thread(), "must be a JavaThread");
     const JavaThread* jt = (JavaThread*)THREAD;
 
@@ -190,6 +191,7 @@ instanceKlassHandle KlassFactory::create_from_stream(ClassFileStream* stream,
                                         loader_data,
                                         protection_domain,
                                         &cached_class_file,
+                                        pick_newest,
                                         CHECK_NULL);
   }
 

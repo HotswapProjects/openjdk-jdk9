@@ -550,14 +550,14 @@ void VM_EnhancedRedefineClasses::doit() {
     }
   }
 
-  if (objectClosure.needs_instance_update()) {
+//  if (objectClosure.needs_instance_update()) {
     // Do a full garbage collection to update the instance sizes accordingly
     Universe::set_redefining_gc_run(true);
     notify_gc_begin(true);
-    Universe::heap()->collect_as_vm_thread(GCCause::_heap_inspection);
+    Universe::heap()->collect_as_vm_thread(GCCause::_metadata_GC_clear_soft_refs);
     notify_gc_end();
     Universe::set_redefining_gc_run(false);
-  }
+//  }
 
   // Unmark Klass*s as "redefining"
   for (int i = 0; i < _new_classes->length(); i++) {
@@ -567,12 +567,6 @@ void VM_EnhancedRedefineClasses::doit() {
     cur->clear_update_information();
   }
 
-  // TODO: explain...
-  SystemDictionary::update_constraints_after_redefinition();
-
-  // TODO: explain...
-  ciObjectFactory::resort_shared_ci_metadata();
-
   // FIXME - check if it was in JDK8. Copied from standard JDK9 hotswap.
   //MethodDataCleaner clean_weak_method_links;
   //ClassLoaderDataGraph::classes_do(&clean_weak_method_links);
@@ -580,9 +574,15 @@ void VM_EnhancedRedefineClasses::doit() {
   // Disable any dependent concurrent compilations
   SystemDictionary::notice_modification();
 
+  // TODO: explain...
+  SystemDictionary::update_constraints_after_redefinition();
+
   // Set flag indicating that some invariants are no longer true.
   // See jvmtiExport.hpp for detailed explanation.
   JvmtiExport::set_has_redefined_a_class();
+
+  // TODO: explain...
+  ciObjectFactory::resort_shared_ci_metadata();
 
   // check_class() is optionally called for product bits, but is
   // always called for non-product bits.
@@ -605,9 +605,13 @@ void VM_EnhancedRedefineClasses::doit() {
 void VM_EnhancedRedefineClasses::doit_epilogue() {
   VM_GC_Operation::doit_epilogue();
 
-  delete _new_classes;
+  if (_new_classes != NULL) {
+    delete _new_classes;
+  }
   _new_classes = NULL;
-  delete _affected_klasses;
+  if (_affected_klasses != NULL) {
+    delete _affected_klasses;
+  }
   _affected_klasses = NULL;
 
   // Reset the_class_oop to null for error printing.
@@ -692,6 +696,21 @@ jvmtiError VM_EnhancedRedefineClasses::load_new_class_versions(TRAPS) {
     instanceKlassHandle the_class(THREAD, _affected_klasses->at(i));
     Symbol*  the_class_sym = the_class->name();
 
+    // Ensure class is linked before redefine
+    if (!the_class->is_linked()) {
+      the_class->link_class(THREAD);
+      if (HAS_PENDING_EXCEPTION) {
+        Symbol* ex_name = PENDING_EXCEPTION->klass()->name();
+        log_info(redefine, class, load, exceptions)("link_class exception: '%s'", ex_name->as_C_string());
+        CLEAR_PENDING_EXCEPTION;
+        if (ex_name == vmSymbols::java_lang_OutOfMemoryError()) {
+          return JVMTI_ERROR_OUT_OF_MEMORY;
+        } else {
+          return JVMTI_ERROR_INTERNAL;
+        }
+      }
+    }
+
     log_debug(redefine, class, load)
       ("loading name=%s kind=%d (avail_mem=" UINT64_FORMAT "K)",
        the_class->external_name(), _class_load_kind, os::available_memory() >> 10);
@@ -750,21 +769,6 @@ jvmtiError VM_EnhancedRedefineClasses::load_new_class_versions(TRAPS) {
       }
     }
 
-    // Ensure class is linked before redefine
-    if (!the_class->is_linked()) {
-      the_class->link_class(THREAD);
-      if (HAS_PENDING_EXCEPTION) {
-        Symbol* ex_name = PENDING_EXCEPTION->klass()->name();
-        log_info(redefine, class, load, exceptions)("link_class exception: '%s'", ex_name->as_C_string());
-        CLEAR_PENDING_EXCEPTION;
-        if (ex_name == vmSymbols::java_lang_OutOfMemoryError()) {
-          return JVMTI_ERROR_OUT_OF_MEMORY;
-        } else {
-          return JVMTI_ERROR_INTERNAL;
-        }
-      }
-    }
-
     instanceKlassHandle new_class (THREAD, k);
     the_class->set_new_version(new_class());
     _new_classes->append(new_class());
@@ -804,24 +808,23 @@ jvmtiError VM_EnhancedRedefineClasses::load_new_class_versions(TRAPS) {
         AccessFlags flags = new_fs.access_flags();
         flags.set_is_field_modification_watched(old_fs.access_flags().is_field_modification_watched());
         flags.set_is_field_access_watched(old_fs.access_flags().is_field_access_watched());
+        flags.set_has_field_initialized_final_update(old_fs.access_flags().has_field_initialized_final_update());
         new_fs.set_access_flags(flags);
       }
     }
 
     // FIXME: find new affected classes?
-    /**
     if (i == _affected_klasses->length() - 1) {
       // This was the last class processed => check if additional classes have been loaded in the meantime
       for (int j = 0; j<_affected_klasses->length(); j++) {
 
-        Klass* initial_klass = _affected_klasses->at(j)();
+        Klass* initial_klass = _affected_klasses->at(j);
         Klass *initial_subklass = initial_klass->subklass();
         Klass *cur_klass = initial_subklass;
         while(cur_klass != NULL) {
 
-          if(cur_klass->oop_is_instance() && cur_klass->is_newest_version() && !cur_klass->is_redefining()) {
-            instanceKlassHandle handle(THREAD, cur_klass);
-            if (!_affected_klasses->contains(handle)) {
+          if(cur_klass->new_version() == NULL && !cur_klass->is_redefining()) {
+            if (!_affected_klasses->contains(cur_klass)) {
 
               int k = i + 1;
               for (; k<_affected_klasses->length(); k++) {
@@ -829,10 +832,9 @@ jvmtiError VM_EnhancedRedefineClasses::load_new_class_versions(TRAPS) {
                   break;
                 }
               }
-              _affected_klasses->insert_before(k, handle);
+              _affected_klasses->insert_before(k, cur_klass);
             }
-      }
-
+          }
           cur_klass = cur_klass->next_sibling();
         }
       }
@@ -841,13 +843,6 @@ jvmtiError VM_EnhancedRedefineClasses::load_new_class_versions(TRAPS) {
       if (new_count != 0) {
       }
     }
-  }
-
-  if (result != JVMTI_ERROR_NONE) {
-    rollback();
-    return result;
-  }
-     */
 
     log_debug(redefine, class, load)
       ("loaded name=%s (avail_mem=" UINT64_FORMAT "K)", the_class->external_name(), os::available_memory() >> 10);
@@ -1330,7 +1325,7 @@ void VM_EnhancedRedefineClasses::calculate_instance_update_information(Klass* ne
   Rollback all changes - clear new classes from the system dictionary, return old classes to directory, free memory.
 */
 void VM_EnhancedRedefineClasses::rollback() {
-  log_info(redefine, class, load)("rolling back redefinition");
+  log_info(redefine, class, load)("Rolling back redefinition, result=%d", _res);
   SystemDictionary::rollback_redefinition();
 
   for (int i = 0; i < _new_classes->length(); i++) {
@@ -1608,17 +1603,17 @@ void VM_EnhancedRedefineClasses::update_jmethod_ids() {
 int VM_EnhancedRedefineClasses::check_methods_and_mark_as_obsolete() {
   int emcp_method_count = 0;
   int obsolete_count = 0;
-  int old_index = 0;
-  for (int j = 0; j < _matching_methods_length; ++j, ++old_index) {
+//  int old_index = 0;
+  for (int j = 0; j < _matching_methods_length; ++j/*, ++old_index*/) {
     Method* old_method = _matching_old_methods[j];
     Method* new_method = _matching_new_methods[j];
-    Method* old_array_method;
-
-    // Maintain an old_index into the _old_methods array by skipping
-    // deleted methods
-    while ((old_array_method = _old_methods->at(old_index)) != old_method) {
-      ++old_index;
-    }
+//    Method* old_array_method;
+//
+//    // Maintain an old_index into the _old_methods array by skipping
+//    // deleted methods
+//    while ((old_array_method = _old_methods->at(old_index)) != old_method) {
+//      ++old_index;
+//    }
 
     if (MethodComparator::methods_EMCP(old_method, new_method)) {
       // The EMCP definition from JSR-163 requires the bytecodes to be

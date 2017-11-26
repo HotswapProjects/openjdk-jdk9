@@ -124,6 +124,8 @@ Monitor* Service_lock                 = NULL;
 Monitor* PeriodicTask_lock            = NULL;
 Monitor* RedefineClasses_lock         = NULL;
 
+Mutex* EnhancedRedefineClasses_lock   = NULL;
+
 #ifdef INCLUDE_TRACE
 Mutex*   JfrStacktrace_lock           = NULL;
 Monitor* JfrMsg_lock                  = NULL;
@@ -272,6 +274,7 @@ void mutex_init() {
   def(CompileThread_lock           , PaddedMonitor, nonleaf+5,   false, Monitor::_safepoint_check_always);
   def(PeriodicTask_lock            , PaddedMonitor, nonleaf+5,   true,  Monitor::_safepoint_check_sometimes);
   def(RedefineClasses_lock         , PaddedMonitor, nonleaf+5,   true,  Monitor::_safepoint_check_always);
+  def(EnhancedRedefineClasses_lock , PaddedMutex  , nonleaf+7,   false, Monitor::_safepoint_check_always);     // for ensuring that class redefinition is not done in parallel
   if (WhiteBoxAPI) {
     def(Compilation_lock           , PaddedMonitor, leaf,        false, Monitor::_safepoint_check_never);
   }

@@ -4229,7 +4229,9 @@ void ClassFileParser::set_precomputed_flags(InstanceKlass* ik) {
   if (!_has_empty_finalizer) {
     if (_has_finalizer ||
         (super != NULL && super->has_finalizer())) {
-      ik->set_has_finalizer();
+        if (ik->old_version() == NULL || ik->old_version()->has_finalizer()) {
+          ik->set_has_finalizer();
+        }
     }
   }
 

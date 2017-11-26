@@ -123,6 +123,8 @@ extern Mutex*   Management_lock;                 // a lock used to serialize JVM
 extern Monitor* Service_lock;                    // a lock used for service thread operation
 extern Monitor* PeriodicTask_lock;               // protects the periodic task structure
 extern Monitor* RedefineClasses_lock;            // locks classes from parallel redefinition
+extern Mutex* EnhancedRedefineClasses_lock;      // locks classes from parallel enhanced redefinition
+
 
 #ifdef INCLUDE_TRACE
 extern Mutex*   JfrStacktrace_lock;              // used to guard access to the JFR stacktrace table

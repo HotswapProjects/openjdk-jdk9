@@ -178,6 +178,7 @@ Klass::Klass() : _prototype_header(markOopDesc::prototype()),
                  _new_version(NULL),
                  _old_version(NULL),
                  _is_redefining(false),
+                 _is_copying_backwards(false),
                  _redefinition_flags(Klass::NoRedefinition),
                  _update_information(NULL) {
 

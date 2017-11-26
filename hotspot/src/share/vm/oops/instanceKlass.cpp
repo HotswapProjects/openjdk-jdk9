@@ -721,7 +721,9 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_k, TRAPS) {
     // If we were to use wait() instead of waitInterruptibly() then
     // we might end up throwing IE from link/symbol resolution sites
     // that aren't expected to throw.  This would wreak havoc.  See 6320309.
-    while(this_k->is_being_initialized() && !this_k->is_reentrant_initialization(self)) {
+    // (DCEVM) Wait also for the old class version to be fully initialized.
+    while((this_k->is_being_initialized() && !this_k->is_reentrant_initialization(self))
+        || (this_k->old_version() != NULL && InstanceKlass::cast(this_k->old_version())->is_being_initialized())){
         wait = true;
       ol.waitUninterruptibly(CHECK);
     }
@@ -1951,6 +1953,11 @@ bool InstanceKlass::update_jmethod_id(Method* method, jmethodID newMethodID) {
 
 void InstanceKlass::remove_dependent_nmethod(nmethod* nm, bool delete_immediately) {
   dependencies().remove_dependent_nmethod(nm, delete_immediately);
+  // (DCEVM) Hack as dependencies get wrong version of Klass*
+  if (this->old_version() != NULL) {
+    InstanceKlass::cast(this->old_version())->remove_dependent_nmethod(nm, true);
+    return;
+  }
 }
 
 #ifndef PRODUCT
@@ -3318,7 +3325,7 @@ void InstanceKlass::verify_on(outputStream* st) {
     }
 
     guarantee(sib->is_klass(), "should be klass");
-    guarantee(sib->super() == super, "siblings should have same superklass");
+    guarantee(sib->super() == super || super->newest_version() == SystemDictionary::Object_klass(), "siblings should have same superklass");
   }
 
   // Verify implementor fields
