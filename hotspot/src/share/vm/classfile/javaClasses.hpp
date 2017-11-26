@@ -208,11 +208,12 @@ class java_lang_Class : AllStatic {
   static void set_init_lock(oop java_class, oop init_lock);
   static void set_protection_domain(oop java_class, oop protection_domain);
   static void set_class_loader(oop java_class, oop class_loader);
-  static void set_component_mirror(oop java_class, oop comp_mirror);
   static void initialize_mirror_fields(KlassHandle k, Handle mirror, Handle protection_domain, TRAPS);
   static void set_mirror_module_field(KlassHandle K, Handle mirror, Handle module, TRAPS);
  public:
   static void compute_offsets();
+
+  static void set_component_mirror(oop java_class, oop comp_mirror);
 
   // Instance creation
   static void create_mirror(KlassHandle k, Handle class_loader, Handle module,

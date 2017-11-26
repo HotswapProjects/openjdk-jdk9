@@ -477,10 +477,6 @@ void VM_EnhancedRedefineClasses::doit() {
   // Deoptimize all compiled code that depends on this class (do only once, because it clears whole cache)
   flush_dependent_code(instanceKlassHandle(thread, (Klass*)NULL), thread);
 
-  // Adjust constantpool caches for all classes that reference methods of the evolved class.
-  ClearCpoolCacheAndUnpatch clear_cpool_cache(thread);
-  ClassLoaderDataGraph::classes_do(&clear_cpool_cache);
-
   ChangePointersOopClosure<StoreNoBarrier> oopClosureNoBarrier;
   ChangePointersOopClosure<StoreBarrier> oopClosure;
   ChangePointersObjectClosure objectClosure(&oopClosure);
@@ -529,10 +525,8 @@ void VM_EnhancedRedefineClasses::doit() {
       // Also, set array klasses element klass.
       cur->set_array_klasses(array_klasses);
       ObjArrayKlass::cast(array_klasses)->set_element_klass(cur);
-      // FIXME JB: jdk9
-      // FIXME: BasicType type = TypeArrayKlass::cast(k())->element_type();
-      // comp_mirror = Universe::java_mirror(type);
-      // ArrayKlass::cast(array_klasses)->set_component_mirror(cur->java_mirror());
+      java_lang_Class::set_array_klass(cur->java_mirror(), array_klasses);
+      java_lang_Class::set_component_mirror(array_klasses->java_mirror(), cur->java_mirror());
     }
 
     // Initialize the new class! Special static initialization that does not execute the
@@ -554,7 +548,7 @@ void VM_EnhancedRedefineClasses::doit() {
     // Do a full garbage collection to update the instance sizes accordingly
     Universe::set_redefining_gc_run(true);
     notify_gc_begin(true);
-    Universe::heap()->collect_as_vm_thread(GCCause::_metadata_GC_clear_soft_refs);
+    Universe::heap()->collect_as_vm_thread(GCCause::_heap_inspection);
     notify_gc_end();
     Universe::set_redefining_gc_run(false);
 //  }
@@ -1398,8 +1392,6 @@ void VM_EnhancedRedefineClasses::unpatch_bytecode(Method* method) {
 // to fix up these pointers.
 // Adjust cpools and vtables closure
 void VM_EnhancedRedefineClasses::ClearCpoolCacheAndUnpatch::do_klass(Klass* k) {
-/* FIXME: it should update old references from other classes to redefined method. It might not be necessary, 
-        because new classpool rewrite at the end of this method
   // This is a very busy routine. We don't want too much tracing
   // printed out.
   bool trace_name_printed = false;
@@ -1409,7 +1401,6 @@ void VM_EnhancedRedefineClasses::ClearCpoolCacheAndUnpatch::do_klass(Klass* k) {
   // array class vtables also
   if (k->is_array_klass() && _the_class_oop == SystemDictionary::Object_klass()) {
     k->vtable()->adjust_method_entries(the_class, &trace_name_printed);
-
   } else if (k->is_instance_klass()) {
     HandleMark hm(_thread);
     InstanceKlass *ik = InstanceKlass::cast(k);
@@ -1427,13 +1418,13 @@ void VM_EnhancedRedefineClasses::ClearCpoolCacheAndUnpatch::do_klass(Klass* k) {
     // loader as its defining class loader, then we can skip all
     // classes loaded by the bootstrap class loader.
     bool is_user_defined =
-           InstanceKlass::cast(_the_class_oop)->class_loader() != NULL;
+            InstanceKlass::cast(_the_class_oop)->class_loader() != NULL;
     if (is_user_defined && ik->class_loader() == NULL) {
-      return;
+       return;
     }
 
     // Fix the vtable embedded in the_class and subclasses of the_class,
-    // if one exists. We discard new_class and we don't keep an
+    // if one exists. We discard scratch_class and we don't keep an
     // InstanceKlass around to hold obsolete methods so we don't have
     // any other InstanceKlass embedded vtables to update. The vtable
     // holds the Method*s for virtual (but not final) methods.
@@ -1446,15 +1437,16 @@ void VM_EnhancedRedefineClasses::ClearCpoolCacheAndUnpatch::do_klass(Klass* k) {
     // This must be done after we adjust the default_methods and
     // default_vtable_indices for methods already in the vtable.
     // If redefining Unsafe, walk all the vtables looking for entries.
-    if (ik->vtable_length() > 0 && (_the_class_oop->is_interface()
-        || _the_class_oop == SystemDictionary::internal_Unsafe_klass()
-        || ik->is_subtype_of(_the_class_oop))) {
-      // ik->vtable() creates a wrapper object; rm cleans it up
-      ResourceMark rm(_thread);
-
-      ik->vtable()->adjust_method_entries(the_class, &trace_name_printed);
-      ik->adjust_default_methods(the_class, &trace_name_printed);
-    }
+// FIXME - code from standard redefine - if needed, it should switch to new_class
+//    if (ik->vtable_length() > 0 && (_the_class_oop->is_interface()
+//        || _the_class_oop == SystemDictionary::internal_Unsafe_klass()
+//        || ik->is_subtype_of(_the_class_oop))) {
+//      // ik->vtable() creates a wrapper object; rm cleans it up
+//      ResourceMark rm(_thread);
+//
+//      ik->vtable()->adjust_method_entries(the_class, &trace_name_printed);
+//      ik->adjust_default_methods(the_class, &trace_name_printed);
+//    }
 
     // If the current class has an itable and we are either redefining an
     // interface or if the current class is a subclass of the_class, then
@@ -1463,56 +1455,17 @@ void VM_EnhancedRedefineClasses::ClearCpoolCacheAndUnpatch::do_klass(Klass* k) {
     // every InstanceKlass that has an itable since there isn't a
     // subclass relationship between an interface and an InstanceKlass.
     // If redefining Unsafe, walk all the itables looking for entries.
-    if (ik->itable_length() > 0 && (_the_class_oop->is_interface()
-        || _the_class_oop == SystemDictionary::internal_Unsafe_klass()
-        || ik->is_subclass_of(_the_class_oop))) {
-      // ik->itable() creates a wrapper object; rm cleans it up
-      ResourceMark rm(_thread);
-
-      ik->itable()->adjust_method_entries(the_class, &trace_name_printed);
-    }
-
-    // The constant pools in other classes (other_cp) can refer to
-    // methods in the_class. We have to update method information in
-    // other_cp's cache. If other_cp has a previous version, then we
-    // have to repeat the process for each previous version. The
-    // constant pool cache holds the Method*s for non-virtual
-    // methods and for virtual, final methods.
-    //
-    // Special case: if the current class is the_class, then new_cp
-    // has already been attached to the_class and old_cp has already
-    // been added as a previous version. The new_cp doesn't have any
-    // cached references to old methods so it doesn't need to be
-    // updated. We can simply start with the previous version(s) in
-    // that case.
-    constantPoolHandle other_cp;
-    ConstantPoolCache* cp_cache;
-
-    if (ik != _the_class_oop) {
-      // this klass' constant pool cache may need adjustment
-      other_cp = constantPoolHandle(ik->constants());
-      cp_cache = other_cp->cache();
-      if (cp_cache != NULL) {
-        cp_cache->adjust_method_entries(the_class, &trace_name_printed);
-      }
-    }
-
-    // the previous versions' constant pool caches may need adjustment
-    for (InstanceKlass* pv_node = ik->previous_versions();
-         pv_node != NULL;
-         pv_node = pv_node->previous_versions()) {
-      cp_cache = pv_node->constants()->cache();
-      if (cp_cache != NULL) {
-        cp_cache->adjust_method_entries(pv_node, &trace_name_printed);
-      }
-    }
-  }*/
-  if (!k->is_instance_klass()) {
-    return;
-  }
-  HandleMark hm(_thread);
-  InstanceKlass *ik = InstanceKlass::cast(k);
-  constantPoolHandle other_cp = constantPoolHandle(ik->constants());
+// FIXME - code from standard redefine - if needed, it should switch to new_class
+//    if (ik->itable_length() > 0 && (_the_class_oop->is_interface()
+//        || _the_class_oop == SystemDictionary::internal_Unsafe_klass()
+//        || ik->is_subclass_of(_the_class_oop))) {
+//      // ik->itable() creates a wrapper object; rm cleans it up
+//      ResourceMark rm(_thread);
+//
+//      ik->itable()->adjust_method_entries(the_class, &trace_name_printed);
+//    }
+   
+   constantPoolHandle other_cp = constantPoolHandle(ik->constants());
 
   // Update host klass of anonymous classes (for example, produced by lambdas) to newest version.
   if (ik->is_anonymous() && ik->host_klass()->new_version() != NULL) {
@@ -1524,13 +1477,14 @@ void VM_EnhancedRedefineClasses::ClearCpoolCacheAndUnpatch::do_klass(Klass* k) {
       Klass* klass = other_cp->resolved_klass_at(i);
       if (klass->new_version() != NULL) {
         // Constant pool entry points to redefined class -- update to the new version
-        other_cp->klass_at_put(i, klass->new_version());
+        other_cp->klass_at_put(i, klass->newest_version());
       }
       klass = other_cp->resolved_klass_at(i);
       assert(klass->new_version() == NULL, "Must be new klass!");
     }
   }
 
+  // DCEVM - clear whole cache (instead special methods for class/method update in standard redefinition)
   ConstantPoolCache* cp_cache = other_cp->cache();
   if (cp_cache != NULL) {
     cp_cache->clear_entries();
@@ -1539,6 +1493,7 @@ void VM_EnhancedRedefineClasses::ClearCpoolCacheAndUnpatch::do_klass(Klass* k) {
   // If bytecode rewriting is enabled, we also need to unpatch bytecode to force resolution of zeroed entries
   if (RewriteBytecodes) {
     ik->methods_do(unpatch_bytecode);
+  }
   }
 }
 
@@ -1562,155 +1517,31 @@ void VM_EnhancedRedefineClasses::update_jmethod_ids() {
   for (int j = 0; j < _matching_methods_length; ++j) {
     Method* old_method = _matching_old_methods[j];
     jmethodID jmid = old_method->find_jmethod_id_or_null();
-    if (old_method->new_version() != NULL && jmid == NULL) {
-       // (DCEVM) Have to create jmethodID in this case
-       jmid = old_method->jmethod_id();
-    }
-
     if (jmid != NULL) {
       // There is a jmethodID, change it to point to the new method
       methodHandle new_method_h(_matching_new_methods[j]);
-
-
-      if (old_method->new_version() == NULL) {
-        methodHandle old_method_h(_matching_old_methods[j]);
-        jmethodID new_jmethod_id = Method::make_jmethod_id(old_method_h->method_holder()->class_loader_data(), old_method_h());
-        bool result = InstanceKlass::cast(old_method_h->method_holder())->update_jmethod_id(old_method_h(), new_jmethod_id);
-      } else {
-        jmethodID mid = new_method_h->jmethod_id();
-        bool result = InstanceKlass::cast(new_method_h->method_holder())->update_jmethod_id(new_method_h(), jmid);
-      }
-      
       Method::change_method_associated_with_jmethod_id(jmid, new_method_h());
-      // assert(Method::resolve_jmethod_id(jmid) == _new_methods->at(_matching_new_methods[j]), "should be replaced");
-      //jmethodID mid = (_new_methods->at(_matching_new_methods[j]))->jmethod_id();
-
-
-//      Method::change_method_associated_with_jmethod_id(jmid, new_method_h());
-//      assert(Method::resolve_jmethod_id(jmid) == _matching_new_methods[j],
-//             "should be replaced");
+      assert(Method::resolve_jmethod_id(jmid) == _matching_new_methods[j],
+             "should be replaced");
     }
   }
 }
 
 /**
-  Set method as obsolet.
-  Do not know what EMCP means...
-  // old_method->set_is_deleted(); - why is commented out?
-  old_method->set_is_old();
-  old_method->set_is_obsolete();
+  Set method as obsolete / old / deleted.
 */
-int VM_EnhancedRedefineClasses::check_methods_and_mark_as_obsolete() {
-  int emcp_method_count = 0;
-  int obsolete_count = 0;
-//  int old_index = 0;
+void VM_EnhancedRedefineClasses::check_methods_and_mark_as_obsolete() {
   for (int j = 0; j < _matching_methods_length; ++j/*, ++old_index*/) {
     Method* old_method = _matching_old_methods[j];
     Method* new_method = _matching_new_methods[j];
-//    Method* old_array_method;
-//
-//    // Maintain an old_index into the _old_methods array by skipping
-//    // deleted methods
-//    while ((old_array_method = _old_methods->at(old_index)) != old_method) {
-//      ++old_index;
-//    }
 
-    if (MethodComparator::methods_EMCP(old_method, new_method)) {
-      // The EMCP definition from JSR-163 requires the bytecodes to be
-      // the same with the exception of constant pool indices which may
-      // differ. However, the constants referred to by those indices
-      // must be the same.
-      //
-      // We use methods_EMCP() for comparison since constant pool
-      // merging can remove duplicate constant pool entries that were
-      // present in the old method and removed from the rewritten new
-      // method. A faster binary comparison function would consider the
-      // old and new methods to be different when they are actually
-      // EMCP.
-      //
-      // The old and new methods are EMCP and you would think that we
-      // could get rid of one of them here and now and save some space.
-      // However, the concept of EMCP only considers the bytecodes and
-      // the constant pool entries in the comparison. Other things,
-      // e.g., the line number table (LNT) or the local variable table
-      // (LVT) don't count in the comparison. So the new (and EMCP)
-      // method can have a new LNT that we need so we can't just
-      // overwrite the new method with the old method.
-      //
-      // When this routine is called, we have already attached the new
-      // methods to the_class so the old methods are effectively
-      // overwritten. However, if an old method is still executing,
-      // then the old method cannot be collected until sometime after
-      // the old method call has returned. So the overwriting of old
-      // methods by new methods will save us space except for those
-      // (hopefully few) old methods that are still executing.
-      //
-      // A method refers to a ConstMethod* and this presents another
-      // possible avenue to space savings. The ConstMethod* in the
-      // new method contains possibly new attributes (LNT, LVT, etc).
-      // At first glance, it seems possible to save space by replacing
-      // the ConstMethod* in the old method with the ConstMethod*
-      // from the new method. The old and new methods would share the
-      // same ConstMethod* and we would save the space occupied by
-      // the old ConstMethod*. However, the ConstMethod* contains
-      // a back reference to the containing method. Sharing the
-      // ConstMethod* between two methods could lead to confusion in
-      // the code that uses the back reference. This would lead to
-      // brittle code that could be broken in non-obvious ways now or
-      // in the future.
-      //
-      // Another possibility is to copy the ConstMethod* from the new
-      // method to the old method and then overwrite the new method with
-      // the old method. Since the ConstMethod* contains the bytecodes
-      // for the method embedded in the oop, this option would change
-      // the bytecodes out from under any threads executing the old
-      // method and make the thread's bcp invalid. Since EMCP requires
-      // that the bytecodes be the same modulo constant pool indices, it
-      // is straight forward to compute the correct new bcp in the new
-      // ConstMethod* from the old bcp in the old ConstMethod*. The
-      // time consuming part would be searching all the frames in all
-      // of the threads to find all of the calls to the old method.
-      //
-      // It looks like we will have to live with the limited savings
-      // that we get from effectively overwriting the old methods
-      // when the new methods are attached to the_class.
+    // the jmethodID cache in InstanceKlass
+    assert(old_method->method_idnum() == new_method->method_idnum(), "must match");
 
-      // Count number of methods that are EMCP.  The method will be marked
-      // old but not obsolete if it is EMCP.
-      emcp_method_count++;
-
-      // An EMCP method is _not_ obsolete. An obsolete method has a
-      // different jmethodID than the current method. An EMCP method
-      // has the same jmethodID as the current method. Having the
-      // same jmethodID for all EMCP versions of a method allows for
-      // a consistent view of the EMCP methods regardless of which
-      // EMCP method you happen to have in hand. For example, a
-      // breakpoint set in one EMCP method will work for all EMCP
-      // versions of the method including the current one.
-    } else {
-      // mark obsolete methods as such
-      old_method->set_is_obsolete();
-      obsolete_count++;
-
-      // obsolete methods need a unique idnum so they become new entries in
-      // the jmethodID cache in InstanceKlass
-      assert(old_method->method_idnum() == new_method->method_idnum(), "must match");
-      u2 num = InstanceKlass::cast(_the_class_oop)->next_method_idnum();
-      if (num != ConstMethod::UNSET_IDNUM) {
-        old_method->set_method_idnum(num);
-      }
-
-      // With tracing we try not to "yack" too much. The position of
-      // this trace assumes there are fewer obsolete methods than
-      // EMCP methods.
-      if (log_is_enabled(Trace, redefine, class, obsolete, mark)) {
-        ResourceMark rm;
-        log_trace(redefine, class, obsolete, mark)
-          ("mark %s(%s) as obsolete", old_method->name()->as_C_string(), old_method->signature()->as_C_string());
-      }
-    }
+    old_method->set_is_obsolete();
     old_method->set_is_old();
   }
+
   for (int i = 0; i < _deleted_methods_length; ++i) {
     Method* old_method = _deleted_methods[i];
 
@@ -1719,23 +1550,10 @@ int VM_EnhancedRedefineClasses::check_methods_and_mark_as_obsolete() {
            "cannot delete methods with vtable entries");;*/
 
     // Mark all deleted methods as old, obsolete and deleted
-    // old_method->set_is_deleted();
+    old_method->set_is_deleted();
     old_method->set_is_old();
     old_method->set_is_obsolete();
-    ++obsolete_count;
-    // With tracing we try not to "yack" too much. The position of
-    // this trace assumes there are fewer obsolete methods than
-    // EMCP methods.
-    if (log_is_enabled(Trace, redefine, class, obsolete, mark)) {
-      ResourceMark rm;
-      log_trace(redefine, class, obsolete, mark)
-        ("mark deleted %s(%s) as obsolete", old_method->name()->as_C_string(), old_method->signature()->as_C_string());
-    }
   }
-  assert((emcp_method_count + obsolete_count) == _old_methods->length(),
-    "sanity check");
-  log_trace(redefine, class, obsolete, mark)("EMCP_cnt=%d, obsolete_cnt=%d", emcp_method_count, obsolete_count);
-  return emcp_method_count;
 }
 
 // This internal class transfers the native function registration from old methods
@@ -2028,12 +1846,10 @@ void VM_EnhancedRedefineClasses::redefine_single_class(Klass* new_class_oop, TRA
   _new_methods = new_class->methods();
   _the_class_oop = the_class();
   compute_added_deleted_matching_methods();
-/* FIXME JB
   update_jmethod_ids();
-*/
 
   // track number of methods that are EMCP for add_previous_version() call below
-  int emcp_method_count = check_methods_and_mark_as_obsolete();
+  check_methods_and_mark_as_obsolete();
   transfer_old_native_function_registrations(the_class);
 
 
@@ -2048,6 +1864,10 @@ void VM_EnhancedRedefineClasses::redefine_single_class(Klass* new_class_oop, TRA
     // bool trace_name_printed = false;
     // mnt->adjust_method_entries(new_class(), &trace_name_printed);
   }
+
+  // Adjust constantpool caches for all classes that reference methods of the evolved class.
+  ClearCpoolCacheAndUnpatch clear_cpool_cache(THREAD);
+  ClassLoaderDataGraph::classes_do(&clear_cpool_cache);
 
   {
     ResourceMark rm(THREAD);

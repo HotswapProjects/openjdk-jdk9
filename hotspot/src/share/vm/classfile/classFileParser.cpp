@@ -4229,6 +4229,7 @@ void ClassFileParser::set_precomputed_flags(InstanceKlass* ik) {
   if (!_has_empty_finalizer) {
     if (_has_finalizer ||
         (super != NULL && super->has_finalizer())) {
+        // FIXME - condition from previous DCEVM version, however after reload new finelize() method is not active
         if (ik->old_version() == NULL || ik->old_version()->has_finalizer()) {
           ik->set_has_finalizer();
         }

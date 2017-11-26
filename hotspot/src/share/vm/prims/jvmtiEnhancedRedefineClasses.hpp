@@ -132,9 +132,8 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   // Change jmethodIDs to point to the new methods
   void update_jmethod_ids();
 
-  // In addition to marking methods as old and/or obsolete, this routine
-  // counts the number of methods that are EMCP (Equivalent Module Constant Pool).
-  int check_methods_and_mark_as_obsolete();
+  // marking methods as old and/or obsolete
+  void check_methods_and_mark_as_obsolete();
   void transfer_old_native_function_registrations(instanceKlassHandle the_class);
 
   // Install the redefinition of a class

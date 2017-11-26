@@ -1954,10 +1954,10 @@ bool InstanceKlass::update_jmethod_id(Method* method, jmethodID newMethodID) {
 void InstanceKlass::remove_dependent_nmethod(nmethod* nm, bool delete_immediately) {
   dependencies().remove_dependent_nmethod(nm, delete_immediately);
   // (DCEVM) Hack as dependencies get wrong version of Klass*
-  if (this->old_version() != NULL) {
-    InstanceKlass::cast(this->old_version())->remove_dependent_nmethod(nm, true);
-    return;
-  }
+//  if (this->old_version() != NULL) {
+//    InstanceKlass::cast(this->old_version())->remove_dependent_nmethod(nm, true);
+//    return;
+//  }
 }
 
 #ifndef PRODUCT
