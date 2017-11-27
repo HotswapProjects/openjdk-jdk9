@@ -453,7 +453,7 @@ JvmtiEnv::RetransformClasses(jint class_count, const jclass* classes) {
     class_definitions[index].klass              = jcls;
   }
   if (AllowEnhancedClassRedefinition) {
-//    MutexLocker sd_mutex(EnhancedRedefineClasses_lock);
+    MutexLocker sd_mutex(EnhancedRedefineClasses_lock);
     VM_EnhancedRedefineClasses op(class_count, class_definitions, jvmti_class_load_kind_retransform);
     VMThread::execute(&op);
     return (op.check_error());
@@ -469,7 +469,7 @@ JvmtiEnv::RetransformClasses(jint class_count, const jclass* classes) {
 jvmtiError
 JvmtiEnv::RedefineClasses(jint class_count, const jvmtiClassDefinition* class_definitions) {
   if (AllowEnhancedClassRedefinition) {
-//    MutexLocker sd_mutex(EnhancedRedefineClasses_lock);
+    MutexLocker sd_mutex(EnhancedRedefineClasses_lock);
     VM_EnhancedRedefineClasses op(class_count, class_definitions, jvmti_class_load_kind_redefine);
     VMThread::execute(&op);
     return (op.check_error());
