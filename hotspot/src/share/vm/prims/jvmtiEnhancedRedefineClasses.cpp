@@ -561,6 +561,12 @@ void VM_EnhancedRedefineClasses::doit() {
     cur->clear_update_information();
   }
 
+  // TODO: explain...
+  SystemDictionary::update_constraints_after_redefinition();
+
+  // TODO: explain...
+  ciObjectFactory::resort_shared_ci_metadata();
+
   // FIXME - check if it was in JDK8. Copied from standard JDK9 hotswap.
   //MethodDataCleaner clean_weak_method_links;
   //ClassLoaderDataGraph::classes_do(&clean_weak_method_links);
@@ -568,15 +574,9 @@ void VM_EnhancedRedefineClasses::doit() {
   // Disable any dependent concurrent compilations
   SystemDictionary::notice_modification();
 
-  // TODO: explain...
-  SystemDictionary::update_constraints_after_redefinition();
-
   // Set flag indicating that some invariants are no longer true.
   // See jvmtiExport.hpp for detailed explanation.
   JvmtiExport::set_has_redefined_a_class();
-
-  // TODO: explain...
-  ciObjectFactory::resort_shared_ci_metadata();
 
   // check_class() is optionally called for product bits, but is
   // always called for non-product bits.
@@ -804,37 +804,6 @@ jvmtiError VM_EnhancedRedefineClasses::load_new_class_versions(TRAPS) {
         flags.set_is_field_access_watched(old_fs.access_flags().is_field_access_watched());
         flags.set_has_field_initialized_final_update(old_fs.access_flags().has_field_initialized_final_update());
         new_fs.set_access_flags(flags);
-      }
-    }
-
-    // FIXME: find new affected classes?
-    if (i == _affected_klasses->length() - 1) {
-      // This was the last class processed => check if additional classes have been loaded in the meantime
-      for (int j = 0; j<_affected_klasses->length(); j++) {
-
-        Klass* initial_klass = _affected_klasses->at(j);
-        Klass *initial_subklass = initial_klass->subklass();
-        Klass *cur_klass = initial_subklass;
-        while(cur_klass != NULL) {
-
-          if(cur_klass->new_version() == NULL && !cur_klass->is_redefining()) {
-            if (!_affected_klasses->contains(cur_klass)) {
-
-              int k = i + 1;
-              for (; k<_affected_klasses->length(); k++) {
-                if (_affected_klasses->at(k)->is_subtype_of(cur_klass)) {
-                  break;
-                }
-              }
-              _affected_klasses->insert_before(k, cur_klass);
-            }
-          }
-          cur_klass = cur_klass->next_sibling();
-        }
-      }
-
-      int new_count = _affected_klasses->length() - 1 - i;
-      if (new_count != 0) {
       }
     }
 
