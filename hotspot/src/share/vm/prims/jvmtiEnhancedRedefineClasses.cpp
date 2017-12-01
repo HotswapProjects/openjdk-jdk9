@@ -79,9 +79,8 @@ Klass*      VM_EnhancedRedefineClasses::_the_class_oop = NULL;
  *               caculcate redefinition for them as well.
  * @param class_load_kind always jvmti_class_load_kind_redefine
  */
-VM_EnhancedRedefineClasses::VM_EnhancedRedefineClasses(jint class_count,
-                                       const jvmtiClassDefinition *class_defs,
-                                       JvmtiClassLoadKind class_load_kind) : VM_GC_Operation(Universe::heap()->total_full_collections(), GCCause::_heap_inspection) {
+VM_EnhancedRedefineClasses::VM_EnhancedRedefineClasses(jint class_count, const jvmtiClassDefinition *class_defs, JvmtiClassLoadKind class_load_kind) :
+        VM_GC_Operation(Universe::heap()->total_collections(), GCCause::_heap_inspection, Universe::heap()->total_full_collections(), true) {
   _affected_klasses = NULL;
   _class_count = class_count;
   _class_defs = class_defs;
