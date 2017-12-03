@@ -1485,12 +1485,26 @@ void VM_EnhancedRedefineClasses::update_jmethod_ids() {
   for (int j = 0; j < _matching_methods_length; ++j) {
     Method* old_method = _matching_old_methods[j];
     jmethodID jmid = old_method->find_jmethod_id_or_null();
+    if (old_method->new_version() != NULL && jmid == NULL) {
+       // (DCEVM) Have to create jmethodID in this case
+       jmid = old_method->jmethod_id();
+    }
+
     if (jmid != NULL) {
       // There is a jmethodID, change it to point to the new method
       methodHandle new_method_h(_matching_new_methods[j]);
+
+      if (old_method->new_version() == NULL) {
+        methodHandle old_method_h(_matching_old_methods[j]);
+        jmethodID new_jmethod_id = Method::make_jmethod_id(old_method_h->method_holder()->class_loader_data(), old_method_h());
+        bool result = InstanceKlass::cast(old_method_h->method_holder())->update_jmethod_id(old_method_h(), new_jmethod_id);
+      } else {
+        jmethodID mid = new_method_h->jmethod_id();
+        bool result = InstanceKlass::cast(new_method_h->method_holder())->update_jmethod_id(new_method_h(), jmid);
+      }
+
       Method::change_method_associated_with_jmethod_id(jmid, new_method_h());
-      assert(Method::resolve_jmethod_id(jmid) == _matching_new_methods[j],
-             "should be replaced");
+      assert(Method::resolve_jmethod_id(jmid) == _matching_old_methods[j], "should be replaced");
     }
   }
 }
@@ -1503,22 +1517,35 @@ void VM_EnhancedRedefineClasses::check_methods_and_mark_as_obsolete() {
     Method* old_method = _matching_old_methods[j];
     Method* new_method = _matching_new_methods[j];
 
-    // the jmethodID cache in InstanceKlass
-    assert(old_method->method_idnum() == new_method->method_idnum(), "must match");
+    if (MethodComparator::methods_EMCP(old_method, new_method)) {
+      old_method->set_new_version(new_method);
+      new_method->set_old_version(old_method);
 
-    old_method->set_is_obsolete();
+      // Transfer breakpoints
+      InstanceKlass *ik = InstanceKlass::cast(old_method->method_holder());
+      for (BreakpointInfo* bp = ik->breakpoints(); bp != NULL; bp = bp->next()) {
+        if (bp->match(old_method)) {
+          assert(bp->match(new_method), "if old method is method, then new method must match too");
+          new_method->set_breakpoint(bp->bci());
+        }
+      }
+    } else {
+      // mark obsolete methods as such
+      old_method->set_is_obsolete();
+
+      // obsolete methods need a unique idnum so they become new entries in
+      // the jmethodID cache in InstanceKlass
+      assert(old_method->method_idnum() == new_method->method_idnum(), "must match");
+      u2 num = InstanceKlass::cast(_the_class_oop)->next_method_idnum();
+      if (num != ConstMethod::UNSET_IDNUM) {
+        old_method->set_method_idnum(num);
+      }
+    }
     old_method->set_is_old();
   }
-
   for (int i = 0; i < _deleted_methods_length; ++i) {
     Method* old_method = _deleted_methods[i];
 
-    // FIXME: enhanced redefinition? review?
-/*    assert(!old_method->has_vtable_index(),
-           "cannot delete methods with vtable entries");;*/
-
-    // Mark all deleted methods as old, obsolete and deleted
-    old_method->set_is_deleted();
     old_method->set_is_old();
     old_method->set_is_obsolete();
   }
@@ -1808,7 +1835,7 @@ void VM_EnhancedRedefineClasses::redefine_single_class(Klass* new_class_oop, TRA
 
   // DCEVM Deoptimization is always for whole java world, call only once after all classes are redefined
   // Deoptimize all compiled code that depends on this class
-  //flush_dependent_code(the_class, THREAD);
+  flush_dependent_code(the_class, THREAD);
 
   _old_methods = the_class->methods();
   _new_methods = new_class->methods();
