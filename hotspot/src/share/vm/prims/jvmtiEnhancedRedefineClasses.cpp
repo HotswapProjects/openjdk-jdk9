@@ -1504,7 +1504,7 @@ void VM_EnhancedRedefineClasses::update_jmethod_ids() {
       }
 
       Method::change_method_associated_with_jmethod_id(jmid, new_method_h());
-      assert(Method::resolve_jmethod_id(jmid) == _matching_old_methods[j], "should be replaced");
+      assert(Method::resolve_jmethod_id(jmid) == _matching_new_methods[j], "should be replaced");
     }
   }
 }
@@ -1536,10 +1536,10 @@ void VM_EnhancedRedefineClasses::check_methods_and_mark_as_obsolete() {
       // obsolete methods need a unique idnum so they become new entries in
       // the jmethodID cache in InstanceKlass
       assert(old_method->method_idnum() == new_method->method_idnum(), "must match");
-      u2 num = InstanceKlass::cast(_the_class_oop)->next_method_idnum();
-      if (num != ConstMethod::UNSET_IDNUM) {
-        old_method->set_method_idnum(num);
-      }
+//      u2 num = InstanceKlass::cast(_the_class_oop)->next_method_idnum();
+//      if (num != ConstMethod::UNSET_IDNUM) {
+//        old_method->set_method_idnum(num);
+//      }
     }
     old_method->set_is_old();
   }
@@ -1835,16 +1835,17 @@ void VM_EnhancedRedefineClasses::redefine_single_class(Klass* new_class_oop, TRA
 
   // DCEVM Deoptimization is always for whole java world, call only once after all classes are redefined
   // Deoptimize all compiled code that depends on this class
-  flush_dependent_code(the_class, THREAD);
+  //  flush_dependent_code(the_class, THREAD);
 
   _old_methods = the_class->methods();
   _new_methods = new_class->methods();
   _the_class_oop = the_class();
   compute_added_deleted_matching_methods();
-  update_jmethod_ids();
 
   // track number of methods that are EMCP for add_previous_version() call below
   check_methods_and_mark_as_obsolete();
+  update_jmethod_ids();
+
   transfer_old_native_function_registrations(the_class);
 
 
