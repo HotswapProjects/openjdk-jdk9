@@ -4088,7 +4088,10 @@ public:
              "Limit on number of compiler directives.")                     \
   product(bool, AllowEnhancedClassRedefinition, true,                       \
              "Allow enhanced class redefinition beyond swapping method "    \
-             "bodies")
+             "bodies")                                                      \
+                                                                            \
+  product(bool, DisableHotswapAgent, false,                                 \
+             "Disable integrated Hotswap Agent (HotswapVM only)")
 
 
 /*
